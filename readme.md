@@ -5,8 +5,8 @@ This repository contains the MATLAB code used in the paper for incremental waypo
 This repository supports three main tasks:
 
 1. Running waypoint-generation experiments.
-2. Replaying selected experiments from shared zip data.
-3. Running the analysis on original or replayed results.
+2. Running the analysis on original or replayed results.
+3. Replaying selected experiments from shared zip data.
 
 ## Approach Overview
 
