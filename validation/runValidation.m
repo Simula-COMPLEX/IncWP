@@ -1,9 +1,13 @@
-function results = runValidation(vesselName, selectionType, experimentNumber, writeFolder)
+function results = runValidation(vesselName, selectionType, experimentNumber, writeFolder, overwriteProgress)
 % Validate every saved individual using the other simulator.
 % Run setupProject first, then addpath('validation').
 % Example: results = runValidation("remus100", "IncWP_KP", 1);
 % Optional output name: runValidation("remus100", "IncWP_KP", 1, "IncWP_KP_validation");
-% Simulation blocks are commented out: only inputs are loaded for now.
+% FullWP uses segment simulation; single-selection IncWP uses full-path simulation.
+% Resume by default. Pass true as argument 5 to discard saved progress.
+% On resume, print a results overview for checkpointed individuals first.
+% FullWP saves trajectory comparison labels; legacy checkpoints are compacted
+% on resume without discarding completed individuals.
 
     arguments
         vesselName = "remus100"
@@ -11,25 +15,33 @@ function results = runValidation(vesselName, selectionType, experimentNumber, wr
         selectionType = "FullWP"
         experimentNumber = 1
         writeFolder = selectionType + "_validation"
+        overwriteProgress (1,1) logical = false
     end
 
     repoRoot = fileparts(fileparts(mfilename('fullpath')));
     dataRoot = fullfile(repoRoot, "experimentsData");
     % This folder is only used to load the original experiment data.
-    sourceFolder = fullfile(dataRoot, vesselName, selectionType + "-exNum" + experimentNumber);
-    % Proposed destination only; no folder is created or renamed.
+    sourceSelectionType = selectionType;
+    if selectionType == "FullWPNoStopping"
+        sourceSelectionType = "FullWP";
+    end
+    sourceFolder = fullfile(dataRoot, vesselName, sourceSelectionType + "-exNum" + experimentNumber);
+    % Validation outputs and checkpoints are separate from the source data.
     writeFolder = fullfile(dataRoot, vesselName, writeFolder + "-exNum" + experimentNumber);
 
     if selectionType == "FullWP"
-        results = validateFullWP(sourceFolder, writeFolder);
+        results = validateFullWP(sourceFolder, writeFolder, overwriteProgress);
+    elseif selectionType == "FullWPNoStopping"
+        results = validateFullWPNoStopping(sourceFolder, writeFolder, overwriteProgress);
     else
-        results = validateIncremental(sourceFolder, vesselName, selectionType, writeFolder);
+        results = validateIncremental(sourceFolder, vesselName, selectionType, writeFolder, overwriteProgress);
     end
 end
 
-function results = validateFullWP(sourceFolder, writeFolder)
+function results = validateFullWP(sourceFolder, writeFolder, overwriteProgress)
 % Load FullWP decision and objective matrices, then prepare waypoint pairs.
 
+    %% Load the original FullWP data
     saved = load(fullfile(sourceFolder, "setupConfiguration.mat"), "parameter");
     settings = saved.parameter.shipInformation;
     environment = saved.parameter.enviromentRandom;
@@ -49,13 +61,14 @@ function results = validateFullWP(sourceFolder, writeFolder)
         allObjectives = [allObjectives; objectives];
     end
 
+    %% Prepare validation state and original classifications
     pointDimension = settings.pointDimension;
     numIndividuals = numGenerations * populationSize;
     segmentFitness = NaN(numIndividuals, settings.numWaypoints, 2);
     reachedWaypoints = NaN(numIndividuals, settings.numWaypoints);
     incrementalFitness = NaN(numIndividuals,2);
     recalculatedFitness = NaN(numIndividuals,2);
-    subpaths = cell(numIndividuals, settings.numWaypoints);
+    subpathStatus = repmat("not simulated",numIndividuals,settings.numWaypoints);
     pathTypes = repmat("not simulated",numIndividuals,settings.numWaypoints);
     peak_analysis = [];
     originalTypes = repmat("original unavailable",numIndividuals,settings.numWaypoints);
@@ -85,7 +98,52 @@ function results = validateFullWP(sourceFolder, writeFolder)
     % A fixed prefix reuses the state files across validation runs.
     vesselResultsPath = fullfile(writeFolder, "WptIdx-");
 
-    for index = 1:numIndividuals
+    %% Load or create the resume checkpoint
+    checkpointFile = fullfile(writeFolder, "validationCheckpoint.mat");
+    metadata = struct('mode', "FullWP", 'sourceFolder', string(sourceFolder), ...
+        'settings', settings, 'environment', environment, ...
+        'decisions', allDecisions, 'objectives', allObjectives, 'numIndividuals', numIndividuals);
+    state = struct();
+    state.segmentFitness = segmentFitness;
+    state.reachedWaypoints = reachedWaypoints;
+    state.incrementalFitness = incrementalFitness;
+    state.recalculatedFitness = recalculatedFitness;
+    state.subpathStatus = subpathStatus;
+    state.pathTypes = pathTypes;
+    checkpoint = loadValidationCheckpoint(checkpointFile, metadata, state, overwriteProgress);
+    originalPathCache = struct('generation', 0, 'paths', []);
+    % Upgrade legacy checkpoints before resuming, preserving every comparison.
+    if isfield(checkpoint.state, 'subpaths')
+        fprintf('Compacting saved trajectories into comparison results...\n');
+        for completedIndex = 1:checkpoint.completedIndividuals
+            [subpathStatus(completedIndex,:), originalPathCache] = compareValidationSubpaths( ...
+                sourceFolder, populationType, populationSize, completedIndex, ...
+                allDecisions(completedIndex,:), pointDimension, R_switch, ...
+                checkpoint.state.subpaths(completedIndex,:), ...
+                checkpoint.state.reachedWaypoints(completedIndex,:), originalPathCache);
+            checkpoint.state.subpaths(completedIndex,:) = {[]};
+            if mod(completedIndex,100) == 0
+                fprintf('Compared saved trajectories: %d/%d.\n', ...
+                    completedIndex, checkpoint.completedIndividuals);
+            end
+        end
+        checkpoint.state = rmfield(checkpoint.state, 'subpaths');
+        checkpoint.state.subpathStatus = subpathStatus;
+        saveValidationCheckpoint(checkpointFile, checkpoint);
+        fprintf('Checkpoint compacted; completed individuals preserved.\n');
+    end
+    segmentFitness = checkpoint.state.segmentFitness;
+    reachedWaypoints = checkpoint.state.reachedWaypoints;
+    incrementalFitness = checkpoint.state.incrementalFitness;
+    recalculatedFitness = checkpoint.state.recalculatedFitness;
+    subpathStatus = checkpoint.state.subpathStatus;
+    pathTypes = checkpoint.state.pathTypes;
+    fprintf('FullWP validation: %d/%d individuals already completed.\n', ...
+        checkpoint.completedIndividuals, numIndividuals);
+    displayValidationOverview(checkpoint, originalTypes);
+
+    %% Simulate each individual
+    for index = checkpoint.completedIndividuals+1:numIndividuals
         % These identify the individual, not a simulation timestep. Its next
         % segment resumes the state stored under the same individual index.
         currentIterationNumber = index;
@@ -101,6 +159,7 @@ function results = validateFullWP(sourceFolder, writeFolder)
         startPoint = zeros(1,pointDimension);
         points = zeros(settings.numWaypoints+1,pointDimension);
         path = zeros(0,pointDimension);
+        individualSubpaths = cell(1,settings.numWaypoints);
         individualSegmentFitness = NaN(settings.numWaypoints,2);
 
         for waypointIndex = 1:settings.numWaypoints
@@ -138,7 +197,7 @@ function results = validateFullWP(sourceFolder, writeFolder)
                          currentIterationNumber, prevIterationNumber, vesselResultsPath);
             end
 
-            subpaths{index,waypointIndex} = subpath;
+            individualSubpaths{waypointIndex} = subpath;
             reachedWaypoints(index,waypointIndex) = reachedWaypoint;
 
             % Same classification as calculatePathClassification: reachability
@@ -197,8 +256,23 @@ function results = validateFullWP(sourceFolder, writeFolder)
             end
             recalculatedFitness(index,:) = [-instability, proximity];
         end
+        [subpathStatus(index,:), originalPathCache] = compareValidationSubpaths( ...
+            sourceFolder, populationType, populationSize, index, allDecisions(index,:), ...
+            pointDimension, R_switch, individualSubpaths, reachedWaypoints(index,:), originalPathCache);
+        % Retain comparison labels, not trajectories from previous individuals.
+        clear individualSubpaths path subpath segments
+        % Save only after every waypoint for this individual is complete.
+        checkpoint.state.segmentFitness = segmentFitness;
+        checkpoint.state.reachedWaypoints = reachedWaypoints;
+        checkpoint.state.incrementalFitness = incrementalFitness;
+        checkpoint.state.recalculatedFitness = recalculatedFitness;
+        checkpoint.state.subpathStatus = subpathStatus;
+        checkpoint.state.pathTypes = pathTypes;
+        checkpoint.completedIndividuals = index;
+        saveValidationCheckpoint(checkpointFile, checkpoint);
     end
 
+    clear originalPathCache
     % Compare all individuals after simulation, preserving generation/row order.
     absoluteTolerance = 1e-8;
     relativeTolerance = 1e-8;
@@ -212,50 +286,6 @@ function results = validateFullWP(sourceFolder, writeFolder)
             all(abs(fitnessDifference(index,:)) <= tolerance);
         objectiveStatus(index) = "different";
         if objectivesMatch(index), objectiveStatus(index) = "same"; end
-    end
-
-    % Original FullWP trajectories, when available, are in Comb-paths-g*.mat.
-    % New subpaths are already retained in memory, even if state files are reused.
-    subpathStatus = repmat("not simulated",numIndividuals,settings.numWaypoints);
-    for generationNumber = 1:numGenerations
-        pathsFile = fullfile(sourceFolder, populationType + "-paths-g" + generationNumber + ".mat");
-        originalPaths = [];
-        if isfile(pathsFile)
-            savedPaths = load(pathsFile,"paths");
-            originalPaths = savedPaths.paths;
-        end
-        for individualIndex = 1:populationSize
-            index = (generationNumber-1)*populationSize + individualIndex;
-            if all(isnan(reachedWaypoints(index,:))), continue; end
-            simulated = ~cellfun(@isempty,subpaths(index,:));
-            subpathStatus(index,simulated) = "original unavailable";
-            if isempty(originalPaths) || ~isKey(originalPaths,string(individualIndex)), continue; end
-            original = originalPaths(string(individualIndex));
-            if ~isKey(original,"fullpath"), continue; end
-            points = zeros(settings.numWaypoints,pointDimension);
-            for waypointIndex = 1:settings.numWaypoints
-                columns = (waypointIndex-1)*pointDimension + (1:pointDimension);
-                points(waypointIndex,:) = allDecisions(index,columns);
-            end
-            [~, originalSubpaths, ~] = splitDataBetweenWaypoints(points,R_switch,original("fullpath"));
-            for waypointIndex = 1:settings.numWaypoints
-                current = subpaths{index,waypointIndex};
-                if isempty(current)
-                    subpathStatus(index,waypointIndex) = "not simulated";
-                    continue;
-                end
-                if waypointIndex > numel(originalSubpaths), continue; end
-                reference = originalSubpaths{waypointIndex};
-                subpathStatus(index,waypointIndex) = "different sample counts";
-                if ~isequal(size(reference),size(current)), continue; end
-                difference = abs(current-reference);
-                tolerance = absoluteTolerance + relativeTolerance * abs(reference);
-                subpathStatus(index,waypointIndex) = "different";
-                if all(isfinite(current(:))) && all(difference(:) <= tolerance(:))
-                    subpathStatus(index,waypointIndex) = "same";
-                end
-            end
-        end
     end
 
     % Present aggregate statistics; do not return paths, settings or loop state.
@@ -339,46 +369,286 @@ function results = validateFullWP(sourceFolder, writeFolder)
     disp(results.typeTransitions);
     disp(results.typeAgreement);
     fprintf('Objective percentages/errors use finite comparisons only. NaN means no comparisons available.\n');
+    save(fullfile(writeFolder, "validationResults.mat"), "results");
 
 end
 
-function results = validateIncremental(sourceFolder, vesselName, selectionType, writeFolder)
-% Load incremental individuals and recalculate fitness with full-path simulation.
-% Each candidate includes its saved parent sequence, ending at its own waypoint.
-% Source files are read-only; all results stay in memory.
+function [status, cache] = compareValidationSubpaths(sourceFolder, populationType, populationSize, index, decisions, pointDimension, R_switch, subpaths, reached, cache)
+% Keep only one original generation in memory, shared by its individuals.
+    status = repmat("not simulated",1,numel(subpaths));
+    if all(isnan(reached)), return; end
+    simulated = ~cellfun(@isempty,subpaths);
+    status(simulated) = "original unavailable";
+    generationNumber = ceil(index/populationSize);
+    individualIndex = mod(index-1,populationSize)+1;
+    if cache.generation ~= generationNumber
+        cache.paths = [];
+        cache.generation = generationNumber;
+        pathsFile = fullfile(sourceFolder, populationType + "-paths-g" + generationNumber + ".mat");
+        if isfile(pathsFile)
+            savedPaths = load(pathsFile,"paths");
+            cache.paths = savedPaths.paths;
+        end
+    end
+    originalPaths = cache.paths;
+    if isempty(originalPaths) || ~isKey(originalPaths,string(individualIndex)), return; end
+    original = originalPaths(string(individualIndex));
+    if ~isKey(original,"fullpath"), return; end
+    points = reshape(decisions,pointDimension,[])';
+    [~, originalSubpaths, ~] = splitDataBetweenWaypoints(points,R_switch,original("fullpath"));
+    for waypointIndex = 1:numel(subpaths)
+        if ~simulated(waypointIndex) || waypointIndex > numel(originalSubpaths), continue; end
+        current = subpaths{waypointIndex};
+        reference = originalSubpaths{waypointIndex};
+        status(waypointIndex) = "different sample counts";
+        if ~isequal(size(reference),size(current)), continue; end
+        difference = abs(current-reference);
+        tolerance = 1e-8 + 1e-8*abs(reference);
+        status(waypointIndex) = "different";
+        if all(isfinite(current(:))) && all(difference(:) <= tolerance(:))
+            status(waypointIndex) = "same";
+        end
+    end
+end
 
+function results = validateFullWPNoStopping(sourceFolder, writeFolder, overwriteProgress)
+% Re-run every FullWP individual with the no-divergence-stopping simulators.
+
+    %% Load original FullWP data
+    repoRoot = fileparts(fileparts(mfilename('fullpath')));
+    saved = load(fullfile(sourceFolder, "setupConfiguration.mat"), "parameter");
+    settings = saved.parameter.shipInformation;
+    environment = saved.parameter.enviromentRandom;
+    populationType = string(saved.parameter.populationType);
+    numGenerations = 1000;
+    populationSize = 10;
+    countIndividuals = numGenerations * populationSize;
+    decisions = [];
+    for generationNumber = 1:numGenerations
+        populationFile = fullfile(sourceFolder, populationType + "-population-g" + generationNumber + ".mat");
+        population = load(populationFile, "Population");
+        decisions = [decisions; population.Population.decs];
+    end
+
+    %% Load the original path types for comparison
+    originalTypes = repmat("original unavailable", countIndividuals, settings.numWaypoints);
+    classification = load(fullfile(sourceFolder, "classificiation.mat"), "classesMap");
+    for waypointIndex = 1:settings.numWaypoints
+        types = string(classification.classesMap(string(waypointIndex+1)));
+        assert(numel(types) == countIndividuals, 'Validation:ClassificationSize', ...
+            'Original classifications for waypoint %d do not match the population.', waypointIndex+1);
+        originalTypes(:,waypointIndex) = types(:);
+    end
+
+    %% Use only the copied simulators without divergence stopping
+    noStoppingPath = fullfile(repoRoot, "scripts", "vesselSearch", "globalSearch", ...
+        "pathSimulation", "withoutEarlyStopping");
+    addpath(noStoppingPath, '-begin');
+    restorePath = onCleanup(@() rmpath(noStoppingPath));
+    analysisPath = fullfile(repoRoot, "analysis");
+    if count(py.sys.path, analysisPath) == 0
+        insert(py.sys.path, int32(0), analysisPath);
+    end
+    peakAnalysis = py.importlib.import_module('calculate_number_of_peaks');
+
+    %% Load or create the resume checkpoint
+    checkpointFile = fullfile(writeFolder, "validationCheckpoint.mat");
+    metadata = struct('mode', "FullWPNoStopping", 'sourceFolder', string(sourceFolder), ...
+        'vesselName', string(settings.shipName), 'numIndividuals', countIndividuals, ...
+        'numWaypoints', settings.numWaypoints, 'pointDimension', settings.pointDimension, ...
+        'numGenerations', numGenerations, 'populationSize', populationSize);
+    initialState = struct('simulationSeconds', NaN(countIndividuals,1), ...
+        'newTypes', repmat("not simulated", countIndividuals, settings.numWaypoints), ...
+        'reachedWaypoints', false(countIndividuals, settings.numWaypoints));
+    checkpoint = loadValidationCheckpoint(checkpointFile, metadata, initialState, overwriteProgress);
+    simulationSeconds = checkpoint.state.simulationSeconds;
+    newTypes = checkpoint.state.newTypes;
+    reachedWaypoints = checkpoint.state.reachedWaypoints;
+    fprintf('FullWP no-stopping validation: %d/%d individuals already completed.\n', ...
+        checkpoint.completedIndividuals, countIndividuals);
+    displayValidationOverview(checkpoint, originalTypes);
+
+    %% Simulate, time, and classify each original individual
+    for index = checkpoint.completedIndividuals+1:countIndividuals
+        points = reshape(decisions(index,:), settings.pointDimension, [])';
+
+        % The full-path simulators require origin followed by the saved waypoints.
+        wpt.pos.x = [0; points(:,1)];
+        wpt.pos.y = [0; points(:,2)];
+        if settings.pointDimension == 3
+            wpt.pos.z = [0; points(:,3)];
+        end
+        % Run one full route with the vessel-specific simulator.
+        started = tic;
+        if string(settings.shipName) == "mariner"
+            [simdata, ~, ~] = marinerPath(wpt, settings.R_switch, environment);
+            ALOSdata = [];
+        elseif string(settings.shipName) == "remus100"
+            [simdata, ALOSdata, ~] = remus100path(wpt, settings.R_switch, environment);
+        elseif string(settings.shipName) == "nspauv"
+            [simdata, ALOSdata, ~] = npsauvPath(wpt, settings.R_switch, environment);
+        else
+            error('Validation:UnknownVessel', 'Unsupported vessel: %s.', settings.shipName);
+        end
+        simulationSeconds(index) = toc(started);
+        % Split the resulting full path into its waypoint subpaths.
+        [angles, fullpath] = extractAnglesAndPath(simdata, ALOSdata, string(settings.shipName));
+        [transitions, ~, numberReached] = splitDataBetweenWaypoints(points, settings.R_switch, fullpath);
+        reachedWaypoints(index,1:numberReached) = true;
+        newTypes(index,:) = repmat("missing", 1, settings.numWaypoints);
+        startIndex = 1;
+        for waypointIndex = 1:numberReached
+            endIndex = transitions(waypointIndex);
+            segmentAngles = angles(startIndex:endIndex,:);
+            peakCounts = zeros(1,size(segmentAngles,2));
+            for angleIndex = 1:size(segmentAngles,2)
+                peakCounts(angleIndex) = calculateNumberOfPeaks( ...
+                    segmentAngles(:,angleIndex), true, peakAnalysis);
+            end
+            newTypes(index,waypointIndex) = "stable";
+            if any(peakCounts > 0)
+                newTypes(index,waypointIndex) = "unstable";
+            end
+            startIndex = endIndex + 1;
+        end
+
+        % Save this completed individual before starting the next one.
+        checkpoint.state.simulationSeconds = simulationSeconds;
+        checkpoint.state.newTypes = newTypes;
+        checkpoint.state.reachedWaypoints = reachedWaypoints;
+        checkpoint.completedIndividuals = index;
+        saveValidationCheckpoint(checkpointFile, checkpoint);
+    end
+
+    %% Assemble and save comparison results
+    typeMatches = newTypes == originalTypes;
+    individual = (1:countIndividuals)';
+    results.individuals = table(individual, simulationSeconds, sum(typeMatches,2), ...
+        settings.numWaypoints - sum(typeMatches,2), ...
+        'VariableNames', {'Individual', 'SimulationSeconds', 'MatchingSubpaths', 'IncorrectSubpaths'});
+    comparisonIndividual = repelem(individual, settings.numWaypoints);
+    waypoint = repmat((1:settings.numWaypoints)', countIndividuals, 1);
+    results.subpaths = table(comparisonIndividual, waypoint, originalTypes(:), newTypes(:), ...
+        typeMatches(:), 'VariableNames', {'Individual', 'Waypoint', 'OriginalType', ...
+        'NoStoppingType', 'TypeMatches'});
+    results.originalTypes = originalTypes;
+    results.newTypes = newTypes;
+    results.typeMatches = typeMatches;
+    results.reachedWaypoints = reachedWaypoints;
+    results.totalSimulationSeconds = sum(simulationSeconds);
+    results.incorrectSubpaths = sum(~typeMatches, 'all');
+    results.correctSubpaths = sum(typeMatches, 'all');
+    results.writeFolder = string(writeFolder);
+    save(fullfile(writeFolder, "validationResults.mat"), "results", "-v7.3");
+    clear restorePath
+end
+
+function results = validateIncremental(sourceFolder, vesselName, selectionType, writeFolder, overwriteProgress)
+% Replay selected earlier waypoints with every final-waypoint candidate.
+
+    %% Load the original incremental data
     settings = loadShipSearchParameters(vesselName);
     saved = load(fullfile(sourceFolder, "finalInformation.mat"), "enviromentRandom");
     environment = saved.enviromentRandom;
-    individuals = loadIncrementalIndividuals(sourceFolder, settings, selectionType);
+    if ~isfolder(writeFolder), mkdir(writeFolder); end
+
+    if selectionType == "IncWP_Kmeans"
+        individuals = loadIncrementalIndividuals(sourceFolder, settings, selectionType);
+    else
+        [individuals, selectedWaypoints, numGenerations] = ...
+            loadIncrementalValidationRoutes(sourceFolder, settings);
+        if ~isfolder(writeFolder), mkdir(writeFolder); end
+        fprintf('IncWP validation: %d full routes, %d generations per waypoint search.\n', ...
+            height(individuals), numGenerations);
+    end
     recalculatedFitness = NaN(height(individuals),2);
     recalculatedSegmentFitness = NaN(height(individuals),2);
     obj = struct('shipName', string(vesselName), 'pointDimension', settings.pointDimension, ...
         'R_switch', settings.R_switch, 'enviromentRandom', environment);
 
-    % Disabled along with the dependent fitness calculations.
-    %{
-    for index = 1:height(individuals)
+    %% Load or create the resume checkpoint
+    checkpointFile = fullfile(writeFolder, "validationCheckpoint.mat");
+    metadata = struct('mode', string(selectionType), 'sourceFolder', string(sourceFolder), ...
+        'settings', settings, 'environment', environment, ...
+        'individuals', individuals, 'numIndividuals', height(individuals));
+    state = struct('recalculatedFitness', recalculatedFitness, ...
+        'recalculatedSegmentFitness', recalculatedSegmentFitness);
+    checkpoint = loadValidationCheckpoint(checkpointFile, metadata, state, overwriteProgress);
+    recalculatedFitness = checkpoint.state.recalculatedFitness;
+    recalculatedSegmentFitness = checkpoint.state.recalculatedSegmentFitness;
+
+    if selectionType ~= "IncWP_Kmeans"
+        save(fullfile(writeFolder, "validationInputs.mat"), ...
+            "individuals", "selectedWaypoints", "numGenerations", "settings", "environment");
+    end
+
+    %% Simulate each route and save after each completed individual
+    fprintf('IncWP validation: %d/%d individuals already completed.\n', ...
+        checkpoint.completedIndividuals, height(individuals));
+    displayValidationOverview(checkpoint);
+    for index = checkpoint.completedIndividuals+1:height(individuals)
         points = individuals.Waypoints{index};
         [path, ~, ~, ~, ~] = performSimulation(reshape(points(2:end,:)',1,[]), obj);
         scores = incrementalSegmentFitness(path, points, settings);
         recalculatedFitness(index,:) = accumulateFitness(scores, selectionType);
         recalculatedSegmentFitness(index,:) = scores(end,:);
-    end
-    %}
 
+        checkpoint.state.recalculatedFitness = recalculatedFitness;
+        checkpoint.state.recalculatedSegmentFitness = recalculatedSegmentFitness;
+        checkpoint.completedIndividuals = index;
+        saveValidationCheckpoint(checkpointFile, checkpoint);
+    end
+
+    %% Compare recalculated fitness with the original saved fitness
+    absoluteTolerance = 1e-8;
+    relativeTolerance = 1e-8;
+    fitnessDifference = recalculatedFitness - individuals.StoredFitness;
+    segmentFitnessDifference = recalculatedSegmentFitness - individuals.StoredSegmentFitness;
+
+    fitnessMatches = NaN(height(individuals),1);
+    segmentFitnessMatches = NaN(height(individuals),1);
+    for index = 1:height(individuals)
+        originalFitness = individuals.StoredFitness(index,:);
+        newFitness = recalculatedFitness(index,:);
+        if all(isfinite(originalFitness)) && all(isfinite(newFitness))
+            tolerance = absoluteTolerance + relativeTolerance * abs(originalFitness);
+            fitnessMatches(index) = all(abs(fitnessDifference(index,:)) <= tolerance);
+        end
+
+        originalSegmentFitness = individuals.StoredSegmentFitness(index,:);
+        newSegmentFitness = recalculatedSegmentFitness(index,:);
+        if all(isfinite(originalSegmentFitness)) && all(isfinite(newSegmentFitness))
+            tolerance = absoluteTolerance + relativeTolerance * abs(originalSegmentFitness);
+            segmentFitnessMatches(index) = ...
+                all(abs(segmentFitnessDifference(index,:)) <= tolerance);
+        end
+    end
+
+    %% Assemble and save results
     results.writeFolder = writeFolder;
     results.individuals = individuals;
     results.individuals.RecalculatedFitness = recalculatedFitness;
-    results.individuals.FitnessDifference = recalculatedFitness - individuals.StoredFitness;
+    results.individuals.FitnessDifference = fitnessDifference;
+    results.individuals.FitnessMatches = fitnessMatches;
     results.individuals.RecalculatedSegmentFitness = recalculatedSegmentFitness;
-    results.individuals.SegmentFitnessDifference = recalculatedSegmentFitness - individuals.StoredSegmentFitness;
+    results.individuals.SegmentFitnessDifference = segmentFitnessDifference;
+    results.individuals.SegmentFitnessMatches = segmentFitnessMatches;
     results.initialWaypoints = reshape(settings.initialPoints, settings.pointDimension, [])';
     results.environment = environment;
     if selectionType == "IncWP_Kmeans"
         results.fitnessNote = "Kmeans aggregate accumulation in the current runner has incompatible " + ...
             "column counts. Aggregate fitness is NaN; segment fitness is compared for every individual.";
+    else
+        results.selectedWaypoints = selectedWaypoints;
+        results.numGenerationsPerWaypoint = numGenerations;
     end
+    comparison = ["Full route fitness"; "Final segment fitness"];
+    same = [sum(fitnessMatches == 1); sum(segmentFitnessMatches == 1)];
+    different = [sum(fitnessMatches == 0); sum(segmentFitnessMatches == 0)];
+    unavailable = [sum(isnan(fitnessMatches)); sum(isnan(segmentFitnessMatches))];
+    results.fitnessComparison = table(comparison, same, different, unavailable, ...
+        'VariableNames', {'Comparison', 'Same', 'Different', 'Unavailable'});
+    save(fullfile(writeFolder, "validationResults.mat"), "results");
 end
 
 function individuals = loadIncrementalIndividuals(folder, settings, approach)
@@ -474,4 +744,187 @@ function fitness = accumulateFitness(scores, approach)
     else
         fitness = [mean(scores(:,1)), sum(scores(:,2))];
     end
+end
+
+
+function [individuals, selectedWaypoints, numGenerations] = loadIncrementalValidationRoutes(folder, settings, originalGenerations, populationSize)
+% Assemble the saved selected prefix with every final-waypoint individual.
+    arguments
+        folder
+        settings
+        originalGenerations = 1000
+        populationSize = 10
+    end
+
+    % Same budget split as runIncWP and getPopulation.
+    maxEvaluation = ceil(populationSize * originalGenerations / ...
+        (settings.numWaypoints * populationSize)) * populationSize;
+    numGenerations = ceil(maxEvaluation / populationSize);
+    lastWaypoint = settings.numWaypoints + 1;
+    prefix = zeros(settings.numWaypoints, settings.pointDimension);
+    selectedIndices = zeros(settings.numWaypoints-1,1);
+
+    for waypointIndex = 2:lastWaypoint
+        decisions = [];
+        objectives = [];
+        segmentObjectives = [];
+        ids = [];
+        for generation = 1:numGenerations
+            filename = fullfile(folder, "WptIdx-" + waypointIndex + ...
+                "-population-g" + generation + ".mat");
+            saved = load(filename, "Population", "objectivesWithoutPrevList");
+            generationDecisions = saved.Population.decs;
+            count = size(generationDecisions,1);
+            decisions = [decisions; generationDecisions];
+            objectives = [objectives; saved.Population.objs];
+            segmentObjectives = [segmentObjectives; saved.objectivesWithoutPrevList];
+            ids = [ids; repmat([waypointIndex generation],count,1), (1:count)'];
+        end
+
+        if waypointIndex < lastWaypoint
+            selected = load(fullfile(folder, "WptIdx-resultsWpt-" + ...
+                waypointIndex + ".mat"), "indexOfBestIteration");
+            index = selected.indexOfBestIteration;
+            assert(isscalar(index) && index >= 1 && index <= size(decisions,1) && ...
+                index == fix(index), 'Invalid saved selection for waypoint %d.', waypointIndex);
+            % The saved index addresses the populations concatenated in generation order.
+            prefix(waypointIndex,:) = decisions(index,:);
+            selectedIndices(waypointIndex-1) = index;
+        end
+    end
+
+    % No selection at the last waypoint: retain all generations and rows.
+    count = size(decisions,1);
+    waypoints = cell(count,1);
+    for index = 1:count
+        waypoints{index} = [prefix; decisions(index,:)];
+    end
+    parents = repmat({selectedIndices},count,1);
+    individuals = table(ids(:,1), ids(:,2), ids(:,3), waypoints, parents, ...
+        objectives, segmentObjectives, 'VariableNames', ...
+        {'WaypointIndex', 'GenerationNumber', 'IndividualIndex', 'Waypoints', ...
+        'ParentIndices', 'StoredFitness', 'StoredSegmentFitness'});
+    selectedWaypoints = table((2:lastWaypoint-1)', selectedIndices, prefix(2:end,:), ...
+        'VariableNames', {'WaypointIndex', 'SelectedIndividualIndex', 'Coordinates'});
+end
+
+
+function checkpoint = loadValidationCheckpoint(filename, metadata, initialState, overwriteProgress)
+% Shared resume state for FullWP, FullWPNoStopping, and incremental validation.
+
+    if isfile(filename) && ~overwriteProgress
+        saved = load(filename, 'checkpoint');
+        assert(isfield(saved, 'checkpoint') && isfield(saved.checkpoint, 'version') && ...
+            saved.checkpoint.version == 1, 'Validation:InvalidCheckpoint', ...
+            'Unsupported checkpoint. Set overwriteProgress=true to start again.');
+        checkpoint = saved.checkpoint;
+        assert(isequaln(checkpoint.metadata, metadata), 'Validation:CheckpointMismatch', ...
+            'Validation inputs changed. Set overwriteProgress=true to start again.');
+        count = checkpoint.completedIndividuals;
+        assert(isscalar(count) && isfinite(count) && count == fix(count) && ...
+            count >= 0 && count <= metadata.numIndividuals, ...
+            'Validation:InvalidCheckpoint', 'Invalid completed-individual count.');
+    else
+        checkpoint = struct('version', 1, 'metadata', metadata, ...
+            'completedIndividuals', 0, 'state', initialState);
+        saveValidationCheckpoint(filename, checkpoint);
+    end
+end
+
+function displayValidationOverview(checkpoint, originalTypes)
+% Summarize only completed rows, without loading or comparing trajectories.
+    count = checkpoint.completedIndividuals;
+    if count == 0, return; end
+    total = checkpoint.metadata.numIndividuals;
+    rows = 1:count;
+    state = checkpoint.state;
+    fprintf('\nSaved results overview: %d/%d completed (%.2f%%), %d remaining.\n', ...
+        count, total, 100*count/total, total-count);
+    fprintf('All comparisons below use completed individuals only.\n');
+
+    if isfield(state, 'recalculatedFitness')
+        if checkpoint.metadata.mode == "FullWP"
+            original = checkpoint.metadata.objectives(rows,:);
+        else
+            original = checkpoint.metadata.individuals.StoredFitness(rows,:);
+        end
+        displayFitnessOverview("Full route objectives", original, state.recalculatedFitness(rows,:));
+    end
+    if isfield(state, 'recalculatedSegmentFitness')
+        original = checkpoint.metadata.individuals.StoredSegmentFitness(rows,:);
+        displayFitnessOverview("Final segment objectives", original, state.recalculatedSegmentFitness(rows,:));
+    end
+    if isfield(state, 'reachedWaypoints')
+        reached = state.reachedWaypoints(rows,:);
+        disp(table((1:size(reached,2))', sum(reached == 1,1)', ...
+            sum(reached == 0,1)', sum(isnan(reached),1)', ...
+            'VariableNames', {'Waypoint', 'Reached', 'NotReached', 'Unavailable'}));
+    end
+    if isfield(state, 'subpathStatus')
+        status = state.subpathStatus(rows,:);
+        outcomes = ["same"; "different"; "different sample counts"; ...
+            "original unavailable"; "not simulated"];
+        counts = zeros(numel(outcomes),1);
+        for k = 1:numel(outcomes)
+            counts(k) = sum(status(:) == outcomes(k));
+        end
+        disp(table(outcomes, counts, 'VariableNames', {'TrajectoryComparison', 'Subpaths'}));
+    end
+    if nargin > 1
+        if isfield(state, 'pathTypes')
+            newTypes = state.pathTypes(rows,:);
+        else
+            newTypes = state.newTypes(rows,:);
+        end
+        originalTypes = originalTypes(rows,:);
+        types = ["stable"; "unstable"; "missing"];
+        originalCounts = zeros(3,1);
+        newCounts = zeros(3,1);
+        for k = 1:3
+            originalCounts(k) = sum(originalTypes(:) == types(k));
+            newCounts(k) = sum(newTypes(:) == types(k));
+        end
+        disp(table(types, originalCounts, newCounts, ...
+            'VariableNames', {'Type', 'OriginalSubpaths', 'RecalculatedSubpaths'}));
+        comparable = ismember(originalTypes,types) & ismember(newTypes,types);
+        same = sum(originalTypes(comparable) == newTypes(comparable));
+        compared = sum(comparable(:));
+        fprintf('Path classifications: %d same, %d different, %d unavailable.\n', ...
+            same, compared-same, numel(comparable)-compared);
+        if compared > 0
+            fprintf('Classification agreement: %.2f%% of comparable subpaths.\n', 100*same/compared);
+        end
+    end
+    if isfield(state, 'simulationSeconds')
+        seconds = state.simulationSeconds(rows);
+        seconds = seconds(isfinite(seconds));
+        if ~isempty(seconds)
+            fprintf('Simulation time: %.1f s/individual on average; ~%.2f hours remaining\n', ...
+                mean(seconds), mean(seconds)*(total-count)/3600);
+            fprintf('(Estimate excludes classification and checkpoint saving.)\n');
+        end
+    end
+    if count < total
+        fprintf('Resuming at individual %d.\n\n', count+1);
+    else
+        fprintf('Simulation complete; assembling final results.\n\n');
+    end
+end
+
+function displayFitnessOverview(label, original, recalculated)
+    comparable = all(isfinite(original),2) & all(isfinite(recalculated),2);
+    tolerance = 1e-8 + 1e-8*abs(original);
+    matches = comparable & all(abs(recalculated-original) <= tolerance,2);
+    fprintf('%s: %d same, %d different, %d unavailable (tolerance 1e-8 absolute + relative).\n', ...
+        label, sum(matches), sum(comparable & ~matches), sum(~comparable));
+end
+
+function saveValidationCheckpoint(filename, checkpoint)
+% Save only after one individual is complete, so an interrupted one is rerun.
+
+    checkpoint.savedAt = datetime('now');
+    pendingFile = string(filename) + ".pending.mat";
+    save(pendingFile, 'checkpoint', '-v7.3');
+    [success, message] = movefile(pendingFile, filename, 'f');
+    assert(success, 'Validation:CheckpointWriteFailed', '%s', message);
 end

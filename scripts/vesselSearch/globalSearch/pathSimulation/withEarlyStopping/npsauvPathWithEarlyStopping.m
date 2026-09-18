@@ -1,7 +1,6 @@
-function [simdata, ALOSdata, state] = npsauvPath(wpt, R_switch, environmentRandomValues)
+function [simdata, ALOSdata, state] = npsauvPathWithEarlyStopping(wpt, R_switch, environmentRandomValues)
     clear ALOS3D;                       % Clear persistent states in controllers
-    close all;                          % Close all open figure windows
-    
+
     state = 0;
 
     %% USER INPUTS
@@ -75,7 +74,7 @@ Zeta = diag([zeta_theta zeta_psi]);
 M = diag([M(5,5), M(6,6)]);
 Kp = M .* Omega_n.^2;              % Proportional gain
 Kd = M .* (2 * Zeta .* Omega_n);   % Derivative gain
-Ki = (1/10) * Kp .* Omega_n;       % Integral gain 
+Ki = (1/10) * Kp .* Omega_n;       % Integral gain
 
 %% ALOS PATH-FOLLOWING PARAMETERS
 Delta_h = 20;               % horizontal look-ahead distance (m)
@@ -90,13 +89,17 @@ K_f = 0.4;                  % LOS observer gain
 simdata = zeros(N+1, 30);   % Preallocate table for simulation data
 ALOSdata = zeros(N+1, 4);   % Preallocate table for ALOS guidance data
 wayPoints = [wpt.pos.x wpt.pos.y wpt.pos.z];
-last_waypoint = wayPoints(end,:);
-nextWaypointIndex = 2;
-nextWaypoint = wayPoints(nextWaypointIndex,:);
-reached_every_waypoint = false;
+    last_waypoint = wayPoints(end,:);
+    nextWaypointIndex = 2;
+    nextWaypoint = wayPoints(nextWaypointIndex,:);
+    reached_every_waypoint = false;
+    stopSimulation = false;
 
+    checkpointList = [];
+    CheckpointDistance = 100;
+    numCheckPointsToCheck = 10;
 
-for i = 1:N+1
+    for i = 1:N+1
     t = (i-1) * h;             % Current simulation time
 
     % Measurement updates
@@ -121,7 +124,6 @@ for i = 1:N+1
 
     ALOSdata(i,:) = [y_e z_e alpha_c_hat beta_c_hat];
 
-
     % MIMO PID controller for pitch and roll moments
     tau5 = -Kp(1,1) * ssa( theta - theta_d ) -Kd(1,1) * q ...
         - Ki(1,1) * theta_int;
@@ -144,7 +146,7 @@ for i = 1:N+1
     Vc = sat(Vc + 0.05 * h *  environmentRandomValues(2,i), 1.0);
     wc = sat(wc + 0.01 * h *  environmentRandomValues(3,i), 0.2);
 
-    % AUV dynamics 
+    % AUV dynamics
     xdot = npsauv(x, u_com, Vc, betaVc, wc);
 
     % Store simulation data in a table
@@ -156,26 +158,41 @@ for i = 1:N+1
     theta_int = theta_int + h * ssa( theta - theta_d );
     psi_int = psi_int + h * ssa( psi - psi_d );
 
-    distanceToNextWpt = pdist2([xn yn zn], nextWaypoint, 'euclidean');
-    reachedWaypoint = distanceToNextWpt < R_switch;
-    if reachedWaypoint
-        clear integralSMCheading ALOS3D
-        if nextWaypointIndex == size(wayPoints,1)
-            reached_every_waypoint = true;
-        else
-            nextWaypointIndex = nextWaypointIndex+1;
+        distanceToNextWpt = pdist2([xn yn zn], nextWaypoint, 'euclidean');
+        reachedWaypoint = distanceToNextWpt < R_switch;
+        if mod(i,CheckpointDistance) == 0
+            if length(checkpointList) > numCheckPointsToCheck
+                if all(checkpointList(end-numCheckPointsToCheck:end) < distanceToNextWpt)
+                    stopSimulation = true;
+                    reachedWaypoint = false;
+                end
+            end
+            checkpointList = [checkpointList; distanceToNextWpt];
+        end
+
+        if stopSimulation
+            break;
+        end
+
+        if reachedWaypoint
+            clear integralSMCheading ALOS3D
+            checkpointList = [];
             if nextWaypointIndex == size(wayPoints,1)
-                nextWaypoint = last_waypoint;
+                reached_every_waypoint = true;
             else
-                nextWaypoint = wayPoints(nextWaypointIndex,:);
+                nextWaypointIndex = nextWaypointIndex+1;
+                if nextWaypointIndex == size(wayPoints,1)
+                    nextWaypoint = last_waypoint;
+                else
+                    nextWaypoint = wayPoints(nextWaypointIndex,:);
+                end
             end
         end
-    end
 
-    if reached_every_waypoint || i == N+1
-        break;
+        if reached_every_waypoint || i == N+1
+            break;
+        end
     end
-end
-simdata(i+1:end,:) = [];
-ALOSdata(i+1:end,:) = [];
+    simdata(i+1:end,:) = [];
+    ALOSdata(i+1:end,:) = [];
 end

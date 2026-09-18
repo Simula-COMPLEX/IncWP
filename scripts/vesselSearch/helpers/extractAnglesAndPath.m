@@ -5,11 +5,11 @@ function [angles, fullpath] = extractAnglesAndPath(simdata,ALOSdata, ship)
         y = simdata(:,6);
         fullpath = [x y];
 
-        u     = simdata(:,1); 
-        v     = simdata(:,2);          
-        r     = simdata(:,3);  
-        psi   = simdata(:,4);
-        delta = simdata(:,7);  
+        u     = simdata(:,2); 
+        v     = simdata(:,3);          
+        r     = simdata(:,4);  
+        psi   = simdata(:,7);
+        delta = simdata(:,8);  
        
         angles = [u v r psi delta];
     elseif ship == "remus100"

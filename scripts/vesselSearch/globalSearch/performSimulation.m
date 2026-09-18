@@ -7,21 +7,21 @@ function [fullpath, subPaths, transitionIndices, angles, numberOfPointsReached] 
         wpt.pos.x = [0; pointsMatrix(:,1)];
         wpt.pos.y = [0; pointsMatrix(:,2)];
 
-        [simdata, ~, ~] = marinerPath(wpt, obj.R_switch, obj.enviromentRandom);
+        [simdata, ~, ~] = marinerPathWithEarlyStopping(wpt, obj.R_switch, obj.enviromentRandom);
         [angles, fullpath] = extractAnglesAndPath(simdata, [], obj.shipName);
     elseif obj.shipName == "remus100"
         wpt.pos.x = [0; pointsMatrix(:,1)];
         wpt.pos.y = [0; pointsMatrix(:,2)];
         wpt.pos.z = [0; pointsMatrix(:,3)];
 
-        [simdata, ALOSdata, ~] = remus100path(wpt, obj.R_switch, obj.enviromentRandom);
+        [simdata, ALOSdata, ~] = remus100pathWithEarlyStopping(wpt, obj.R_switch, obj.enviromentRandom);
         [angles, fullpath] = extractAnglesAndPath(simdata, ALOSdata, obj.shipName);
     elseif obj.shipName == "nspauv"
         wpt.pos.x = [0; pointsMatrix(:,1)];
         wpt.pos.y = [0; pointsMatrix(:,2)];
         wpt.pos.z = [0; pointsMatrix(:,3)];
 
-        [simdata, ALOSdata, ~] = npsauvPath(wpt, obj.R_switch, obj.enviromentRandom);
+        [simdata, ALOSdata, ~] = npsauvPathWithEarlyStopping(wpt, obj.R_switch, obj.enviromentRandom);
         [angles, fullpath] = extractAnglesAndPath(simdata, ALOSdata, obj.shipName);
     end
 

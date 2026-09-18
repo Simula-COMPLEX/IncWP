@@ -3,13 +3,13 @@
 projectRoot = fileparts(which("setupProject.m"));
 resultsPath = fullfile(projectRoot, "experimentsData");
 
-approachType = "IncWP_KP";
+%approachType = "IncWP_KP";
 %approachType = "IncWP_Rnd";
 %approachType = "IncWP_Unst";
 %approachType = "IncWP_Prox";
 %approachType = "IncWP_Kmeans";
 %approachType = "RandomSearch";
-%approachType = "FullWP";
+approachType = "FullWP";
 
 experimentNumber = 1;
 
@@ -29,5 +29,3 @@ elseif approachType == "FullWP"
 else
     runIncWP(vesselName, approachType, resultsPath, experimentNumber, numGenerations, populationSize);
 end
-
-

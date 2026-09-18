@@ -2,12 +2,16 @@ function [Dec,Obj,Con] = runFullWP(vessel, resultsPath, experimentNumber, numGen
     % Run the full waypoint baseline and save the search setup.
     algorithm = @WPgen;
     parameter.populationType = "Comb";
-    searchName = "FullWP";
+    searchName = "FullWP" + string(populationSize);
 
     % Use the full evaluation budget in one global waypoint search.
     MaxEvaluation = populationSize * numGenerations;
 
     vesselResultsPath = append(resultsPath, "/", vessel, "/", searchName, "-exNum", string(experimentNumber), "/");
+    if ~isfolder(vesselResultsPath)
+        [created, message] = mkdir(vesselResultsPath);
+        assert(created, 'Could not create experiment folder: %s', message);
+    end
     parameter.shipResultsPath = vesselResultsPath;
 
     % The full-path baseline uses the global waypoint problem.
