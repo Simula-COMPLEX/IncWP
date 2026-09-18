@@ -93,6 +93,9 @@ wayPoints = [wpt.pos.x wpt.pos.y wpt.pos.z];
 last_waypoint = wayPoints(end,:);
 nextWaypointIndex = 2;
 nextWaypoint = wayPoints(nextWaypointIndex,:);
+guidanceWpt.pos.x = wpt.pos.x(nextWaypointIndex-1:nextWaypointIndex);
+guidanceWpt.pos.y = wpt.pos.y(nextWaypointIndex-1:nextWaypointIndex);
+guidanceWpt.pos.z = wpt.pos.z(nextWaypointIndex-1:nextWaypointIndex);
 reached_every_waypoint = false;
 
 
@@ -113,7 +116,7 @@ for i = 1:N+1
     % ALOS guidance law
     [psi_ref, theta_ref, y_e, z_e, alpha_c_hat, beta_c_hat] = ...
         ALOS3D(xn, yn, zn, Delta_h, Delta_v, gamma_h, gamma_v,...
-        M_theta, h, R_switch, wpt, nextWaypointIndex-1);
+        M_theta, h, R_switch, guidanceWpt);
 
     % ALOS observer
     [theta_d, q_d] = LOSobserver(theta_d, q_d, theta_ref, h, K_f);
@@ -164,6 +167,9 @@ for i = 1:N+1
             reached_every_waypoint = true;
         else
             nextWaypointIndex = nextWaypointIndex+1;
+            guidanceWpt.pos.x = wpt.pos.x(nextWaypointIndex-1:nextWaypointIndex);
+            guidanceWpt.pos.y = wpt.pos.y(nextWaypointIndex-1:nextWaypointIndex);
+            guidanceWpt.pos.z = wpt.pos.z(nextWaypointIndex-1:nextWaypointIndex);
             if nextWaypointIndex == size(wayPoints,1)
                 nextWaypoint = last_waypoint;
             else

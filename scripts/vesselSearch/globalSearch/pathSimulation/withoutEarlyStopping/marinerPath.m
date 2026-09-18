@@ -39,6 +39,8 @@ function [simdata, state, newPointIndex] = marinerPath(wpt, R_switch, environmen
         last_waypoint = wayPoints(end,:);
     nextWaypointIndex = 2;
     nextWaypoint = wayPoints(nextWaypointIndex,:);
+    guidanceWpt.pos.x = wpt.pos.x(nextWaypointIndex-1:nextWaypointIndex);
+    guidanceWpt.pos.y = wpt.pos.y(nextWaypointIndex-1:nextWaypointIndex);
         reached_every_waypoint = false;
 
         x_prd = [];
@@ -74,7 +76,7 @@ function [simdata, state, newPointIndex] = marinerPath(wpt, R_switch, environmen
         
             % Guidance and control system 
             % LOS course autopilot for straight-line path following
-            [chi_ref, ~, updateToNextWaypoint] = LOSchi(xpos, ypos, Delta_h, R_switch, wpt, nextWaypointIndex-1);
+            [chi_ref, ~, updateToNextWaypoint] = LOSchi(xpos, ypos, Delta_h, R_switch, guidanceWpt);
         
             if updateToNextWaypoint
                 newPointIndex = [newPointIndex; i ];
@@ -119,6 +121,8 @@ function [simdata, state, newPointIndex] = marinerPath(wpt, R_switch, environmen
                 reached_every_waypoint = true;
             else
                 nextWaypointIndex = nextWaypointIndex+1;
+                guidanceWpt.pos.x = wpt.pos.x(nextWaypointIndex-1:nextWaypointIndex);
+                guidanceWpt.pos.y = wpt.pos.y(nextWaypointIndex-1:nextWaypointIndex);
                 if nextWaypointIndex == size(wayPoints,1)
                     nextWaypoint = last_waypoint;
                 else

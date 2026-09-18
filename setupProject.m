@@ -49,9 +49,8 @@ end
 
 function ensureProjectDataLayout(projectRoot)
     vesselNames = ["mariner", "nspauv", "remus100"];
-    selectionTypes = ["RandomSearch", "IncWP_KP", "IncWP_Rnd", "IncWP_Prox", "IncWP_Unst", "IncWP_Kmeans", "FullWP"];
+    selectionTypes = ["RandomSearch", "IncWP_KP", "IncWP_Rnd", "IncWP_Prox", "IncWP_Unst", "IncWP_Kmeans", "K2-Means", "K3-Means", "K5-Means", "FullWP10", "FullWP100"];
     experimentNumbers = 1:30;
-
     ensureExperimentRoot(fullfile(projectRoot, "experimentsData"), vesselNames, selectionTypes, experimentNumbers);
     ensureExperimentRoot(fullfile(projectRoot, "replicationRuns", "experiments"), vesselNames, selectionTypes, experimentNumbers);
     ensureFolder(fullfile(projectRoot, "replicationData", "zippedExperiments"));
@@ -67,8 +66,7 @@ function ensureExperimentRoot(rootPath, vesselNames, selectionTypes, experimentN
 
         for selectionType = selectionTypes
             for experimentNumber = experimentNumbers
-                experimentRoot = fullfile(vesselRoot, selectionType + "-exNum" + string(experimentNumber));
-                ensureFolder(experimentRoot);
+                ensureFolder(fullfile(vesselRoot, selectionType + "-exNum" + string(experimentNumber)));
             end
         end
 
