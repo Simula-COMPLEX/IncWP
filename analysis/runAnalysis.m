@@ -24,6 +24,7 @@ function analysisPath = runAnalysis(vesselName, dataPath, timeLimitPolicy)
     baseResultsPath = fullfile(analysisPath, vesselName, 'AnalysedResults');
     configureAnalysisResults(baseResultsPath, fullfile(dataPath, vesselName), timeLimitPolicy);
 
+    FullpathResultsIntoIncremental(vesselName, false, dataPath);
     calculatePathForEachApproach(vesselName, dataPath, analysisPath);
     calculateTimeUsageForEachApproach(vesselName, dataPath, analysisPath);
     extractRawMetrics(vesselName, dataPath, analysisPath);
