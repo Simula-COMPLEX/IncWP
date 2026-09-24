@@ -7,15 +7,12 @@ function [selectionTypeClassification, distancesIntervall] = calculatePathClassi
     % Output:
     %   selectionTypeClassification: selection type -> experiment -> classification data.
     %   distancesIntervall: min/max waypoint-distance range across all experiments.
-    %   selectionTypeClassificationWithBrackets: classification data split into distance brackets.
-    %   selectionResultsDistributionMap, resultsMatrix, precentageResultsMap:
-    %       aggregated class counts used later in the analysis.
     resultsPath = char(resultsPath);
 
-    pythonScriptPathInfo = what("analysis");
-    pythonScriptPathInfo = char(pythonScriptPathInfo.path);
-    if count(py.sys.path, pythonScriptPathInfo) == 0
-        insert(py.sys.path, int32(0), pythonScriptPathInfo);
+    projectRoot = fileparts(which('setupProject.m'));
+    pythonScriptPath = fullfile(projectRoot, 'analysis');
+    if count(py.sys.path, pythonScriptPath) == 0
+        insert(py.sys.path, int32(0), pythonScriptPath);
     end
     peak_analysis = py.importlib.import_module('calculate_number_of_peaks');
     py.importlib.reload(peak_analysis);
