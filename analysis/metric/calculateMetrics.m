@@ -12,304 +12,114 @@ function calculateMetrics(vesselName, resultsPath, analysisPath)
     if ~isfolder(baseResultsPath)
         mkdir(baseResultsPath);
     end
-    vesselResultsPathBase = append(resultsPath, "/", vesselName,"/");
-
+    vesselResultsPathBase = fullfile(resultsPath,vesselName);
     vesselInformation = loadShipSearchParameters(vesselName);
-
-    ClassresultsPath = append(baseResultsPath,"ClassificationResults");
-    load(ClassresultsPath, "selectionTypeClassification");
-
-    filelocation = append(baseResultsPath, "/combinedResults.mat");
-    load(filelocation,"approachDataMap", "experimentInfoMap", "waypointRangesMap", "combinedsolutionsMap", "approachSortedInfoMap");
-    numBrackets = 5;
+    filelocation = fullfile(baseResultsPath,'combinedResults.mat');
+    load(filelocation,'approachDataMap','experimentInfoMap','waypointRangesMap', ...
+        'combinedsolutionsMap','approachSortedInfoMap');
     
     % Build the metric maps in the same order they are later displayed.
     metrics = containers.Map();
-    metrics = calculateBracketsForDistanceAndTime(metrics, experimentInfoMap, waypointRangesMap, approachDataMap, numBrackets, approachSortedInfoMap);
-    [metrics, strangeExperiments] = calculateHVandIGD(metrics, experimentInfoMap, vesselResultsPathBase, vesselInformation, waypointRangesMap, combinedsolutionsMap);
-    metrics = calculateStatistaltests(metrics, experimentInfoMap, vesselResultsPathBase, vesselInformation, waypointRangesMap, combinedsolutionsMap);
+    metrics = calculateClassificationAndTime(metrics, experimentInfoMap, waypointRangesMap, approachDataMap, approachSortedInfoMap);
+    [metrics, strangeExperiments] = calculateHV(metrics, experimentInfoMap, vesselResultsPathBase, vesselInformation, approachSortedInfoMap, waypointRangesMap);
+    metrics = calculateStatistaltests(metrics, experimentInfoMap, waypointRangesMap);
     metrics = calculateUniquePoints(metrics, approachDataMap);
     metricsWithoutFullpath = containers.Map();
 
-    filelocation = append(baseResultsPath, "/finalResults.mat");
-    save(filelocation, "metrics", "metricsWithoutFullpath", "strangeExperiments");
-
+    filelocation = fullfile(baseResultsPath,'finalResults.mat');
+    save(filelocation,'metrics','metricsWithoutFullpath','strangeExperiments');
     metrics = calculateUniqueClusters(metrics, approachDataMap);
-    save(filelocation, "metrics", "metricsWithoutFullpath", "strangeExperiments");
+    save(filelocation,'metrics','metricsWithoutFullpath','strangeExperiments');
 end
 
-function metrics = calculateBracketsForDistanceAndTime(metrics, experimentInfoMap, waypointRangesMap, approachDataMap, numBrackets, approachSortedInfoMap)
-    % Aggregate class counts and first-occurrence times in distance brackets.
-    maxTimeOfLastMap = containers.Map();
-    useAccumulatedTime = false;
-    fullSetMissingPrev = containers.Map();
-
-    for waypointKey = waypointRangesMap.keys()
-        wptIndex = waypointKey{:};
-        waypointRanges = waypointRangesMap(wptIndex);
-
-        maxDistanceRange = waypointRanges(5);
-        minDistanceRange = waypointRanges(6);
-        bracketRangesList = [minDistanceRange (1:numBrackets)*(maxDistanceRange/numBrackets)];
-        bracketMin = bracketRangesList(1:(numBrackets));
-        bracketMax = bracketRangesList(2:(numBrackets+1));
-
+function metrics = calculateClassificationAndTime(metrics, experimentInfoMap, waypointRangesMap, approachDataMap, approachSortedInfoMap)
+% Exclude FullWP candidates that missed an earlier waypoint.
+    for waypoint = string(waypointRangesMap.keys())
         waypointMetrics = containers.Map();
-
-        if isKey(fullSetMissingPrev, string(str2double(wptIndex)-1))
-            fullSetMissingWpt = fullSetMissingPrev(string(str2double(wptIndex)-1));
-        else
-            fullSetMissingWpt = containers.Map();
-        end
-
-        for approachKey = experimentInfoMap.keys()
-            approachName = approachKey{:};
-
-            if isKey(maxTimeOfLastMap,approachName) 
-                expMaxTimeOfLastMap = maxTimeOfLastMap(approachName);
-            else
-                expMaxTimeOfLastMap = containers.Map();
-            end
-
-            waypointDataMap = approachDataMap(approachName);
-            approachSortedData = approachSortedInfoMap(approachName);
-            waypointSortedData = approachSortedData(wptIndex);
-            
-            dataMap = waypointDataMap(wptIndex);
-
-            objectives = dataMap('objectives');
-            contraints = dataMap('contraints');
-            decisions = dataMap('decisions');
-            timestamp = dataMap('timestamp');
-            approachTimeExperiments = dataMap('approachTimeExperiments');
-            experimentsnumList = dataMap('experimentsnumList');
-            missingPathsFlag = dataMap('missingPathsFlag');
-            classes = dataMap('classes');
-            nonMissingPathsFlag = ~missingPathsFlag;
-
-            indexToIngoreFullwpt = [];
-            indexToIngoreStart = 0;
-            timeExerpimentsBrackets = containers.Map();
-            for exNumKey = waypointSortedData.keys
-                exNum = exNumKey{:};
-                experimentSorted = waypointSortedData(exNum);
-                classesEx = experimentSorted('classes');
-                decsEx = experimentSorted('decisions');
-                objsEx = experimentSorted('objectives,');
-                timestampEx = experimentSorted('timestamp');
-
-                if approachName == "FullWP" 
-                    if isKey(fullSetMissingWpt, string(exNum))
-                        fullSetMissingList = fullSetMissingWpt(string(exNum));
-                    else
-                        fullSetMissingList = zeros(size(classesEx,1),1);
+        for approach = string(experimentInfoMap.keys())
+            approachInfo = analysisApproachInfo(approach);
+            dataByWaypoint = approachDataMap(approach); data = dataByWaypoint(waypoint);
+            sorted = approachSortedInfoMap(approach); runs = sorted(waypoint);
+            counts = zeros(1,3);
+            names = ["missing","unstable","stable"];
+            for number = experimentInfoMap(approach)
+                run = runs(string(number));
+                classes = string(run('classes'));
+                if approachInfo.isFullWP
+                    missingEarlier = false(size(classes));
+                    for previousWaypoint = 2:str2double(waypoint)-1
+                        previousRuns = sorted(string(previousWaypoint));
+                        previousRun = previousRuns(string(number));
+                        missingEarlier = missingEarlier | string(previousRun('classes')) == "missing";
                     end
-
-                    indexToIngoreFullwpt = [indexToIngoreFullwpt; indexToIngoreStart+ find(fullSetMissingList)];
-                    indexToIngoreStart = indexToIngoreStart + size(fullSetMissingList,1);
-
-                    newMissing = (classesEx == "missing");
-                    classesEx = classesEx(~fullSetMissingList,:);
-                    decsEx = decsEx(~fullSetMissingList,:);
-                    objsEx = objsEx(~fullSetMissingList,:);
-                    timestampEx = timestampEx(~fullSetMissingList,:);
-
-                    fullSetMissingList = newMissing | (fullSetMissingList == 1);
-                    fullSetMissingWpt(string(exNum)) = fullSetMissingList;
+                    classes = classes(~missingEarlier);
                 end
-
-                if isKey(expMaxTimeOfLastMap,exNum) && approachName ~= "FullWP" && useAccumulatedTime 
-                    expMaxTimeOfLast = expMaxTimeOfLastMap(exNum);
-                else
-                    expMaxTimeOfLast = 0;
+                for c = 1:3
+                    counts(c) = counts(c)+sum(classes==names(c));
                 end
-
-                timestampEx = timestampEx + expMaxTimeOfLast;
-                matrixExperiment = [objsEx(:,2) timestampEx, classesEx];
-
-                for bracketNum = 1:numBrackets
-                    if timeExerpimentsBrackets.isKey(string(bracketNum))
-                        bracketExperimentData = timeExerpimentsBrackets(string(bracketNum));
-                        missingBracket= bracketExperimentData('missingExperiment');
-                        unstableBracket= bracketExperimentData('unstableExperiment');
-                        stableBracket= bracketExperimentData('stableExperiment');
-                    else
-                        missingBracket = [];
-                        unstableBracket = [];
-                        stableBracket = [];
-                    end
-                    indexOfIndividualsInThisBracket = ((objsEx(:,2) >= bracketMin(bracketNum)) & (objsEx(:,2) < bracketMax(bracketNum)));
-                    bracketMatrix = matrixExperiment(indexOfIndividualsInThisBracket,:);
-                    
-                    missingExperiment =  bracketMatrix(bracketMatrix(:,3) == "missing", 2);
-                    unstableExperiment =  bracketMatrix(bracketMatrix(:,3) == "unstable", 2);  
-                    stableExperiment =  bracketMatrix(bracketMatrix(:,3) == "stable",2);
-
-                    missingBracket = [missingBracket; min(str2double(missingExperiment))];
-                    unstableBracket = [unstableBracket; min(str2double(unstableExperiment))];
-                    stableBracket = [stableBracket; min(str2double(stableExperiment))];
-                    bracketExperimentData = containers.Map({'missingExperiment', 'unstableExperiment', 'stableExperiment'}, {missingBracket, unstableBracket, stableBracket});
-                    timeExerpimentsBrackets(string(bracketNum)) = bracketExperimentData;
-
-                end
-                expMaxTimeOfLastMap(exNum) = max(timestampEx);
             end
-
-            maxTimeOfLastMap(approachName) = expMaxTimeOfLastMap;
-            if approachName == "FullWP" && str2double(wptIndex) > 2
-                objectives(indexToIngoreFullwpt,:) = [];
-                timestamp(indexToIngoreFullwpt,:) = []; 
-                classes(indexToIngoreFullwpt,:) = [];
-            end
-
-            bracketsDistanceCount = [];
-            bracketsTimeCount = [];
-            indivudalsCount = 0;
-            indexes = zeros(size(objectives(:,2)));
-            for bracketNum = 1:numBrackets
-
-                if bracketNum == numBrackets
-                    indexOfIndividualsInThisBracket = ((objectives(:,2) >= bracketMin(bracketNum)) & (objectives(:,2) <= bracketMax(bracketNum) + 1e-1));
-                else 
-                    indexOfIndividualsInThisBracket = ((objectives(:,2) >= bracketMin(bracketNum)) & (objectives(:,2) < bracketMax(bracketNum)));
-                end
-                indexesNex = indexes + indexOfIndividualsInThisBracket;
-                indexes = indexesNex;
-                indivudalsCount = indivudalsCount + sum(indexOfIndividualsInThisBracket);
-                classesInThisBracket = classes(indexOfIndividualsInThisBracket);
-
-                indexesMissing = (classesInThisBracket == "missing");
-                indexesUnstable = (classesInThisBracket == "unstable");
-                indexesStable = (classesInThisBracket == "stable");
-
-                countMissing = sum(indexesMissing);
-                countUnstable = sum(indexesUnstable);
-                countStable =sum(indexesStable);
-
-                bracketsDistanceCount = [bracketsDistanceCount; countMissing, countUnstable, countStable];
-
-                barcketNumTime = timeExerpimentsBrackets(string(bracketNum));
-                missingBracket= barcketNumTime('missingExperiment');
-                unstableBracket= barcketNumTime('unstableExperiment');
-                stableBracket= barcketNumTime('stableExperiment');
-                averageMissing = mean(missingBracket);
-                averageUnstable = mean(unstableBracket);
-                averageStable = mean(stableBracket);
-                bracketsTimeCount = [bracketsTimeCount; [averageMissing averageUnstable averageStable]];
-            end
-
-            endTimeExperiments = approachTimeExperiments(end,:);
-            wayPointTimeInfo = containers.Map();
-            wayPointTimeInfo('approachTimeExperiments') = approachTimeExperiments;
-            wayPointTimeInfo('MaxTime') = max(endTimeExperiments);
-            wayPointTimeInfo('MinTime') = min(endTimeExperiments);
-            wayPointTimeInfo('AverageTime') = mean(endTimeExperiments);
-            wayPointTimeInfo('exNums') = experimentsnumList;
-            waypointMetrics(approachName) = containers.Map({'bracketsDistanceCount', 'bracketsTimeCount', 'wayPointTimeInfo'}, {bracketsDistanceCount, bracketsTimeCount, wayPointTimeInfo});
+            endTimes = data('approachTimeExperiments');
+            timeInfo = containers.Map({'approachTimeExperiments','MaxTime','MinTime','AverageTime','exNums'}, ...
+                {endTimes,max(endTimes),min(endTimes),mean(endTimes),experimentInfoMap(approach)});
+            waypointMetrics(approach) = containers.Map({'classificationCounts','wayPointTimeInfo'}, ...
+                {counts,timeInfo});
         end
-        fullSetMissingPrev(wptIndex) = fullSetMissingWpt;
-        metrics(wptIndex) = waypointMetrics;
+        metrics(waypoint) = waypointMetrics;
     end
 end
 
-function [metrics, strangeExperiments] = calculateHVandIGD(metrics, experimentInfoMap, vesselResultsPathBase, vesselInformation, waypointRangesMap, combinedsolutionsMap)
-    % Calculate hypervolume and IGD for each approach and waypoint.
-    numGenerationsTotal = 1000;
-    populationSize = 10;
-    numInitialWaypoints = vesselInformation.numWaypoints+1;
-    strangeExperiments = [];
-
-    for waypointKey = waypointRangesMap.keys()
-        wptIndex = waypointKey{:};
-        waypointMetrics = metrics(wptIndex);
-        waypointRanges = waypointRangesMap(wptIndex);
-
-        waypointSolutionMap = combinedsolutionsMap(string(wptIndex));
-        allObjs = waypointSolutionMap("objs");
-        allCons = waypointSolutionMap("cons");
-        allDecs =  waypointSolutionMap("decs");
-        allMissingFlag = waypointSolutionMap("missingFlag");
-        nonMissingPathsFlag = ~allMissingFlag;
-
-        allObjs = allObjs(nonMissingPathsFlag,:);
-        allDecs = allDecs(nonMissingPathsFlag,:);
-        allCons = allCons(nonMissingPathsFlag,:);
-        combinedPopulations =  SOLUTION(allDecs, allObjs, allCons);
-        combinedParetoFront = combinedPopulations.best.objs;
-        
-
-        for approachKey = experimentInfoMap.keys()
-            approachName = approachKey{:};
-
-            if approachName == "FullWP"
-                numGenerations = 1000;
-            elseif approachName == "RandomSearch"
-                numGenerations = 1; 
-            elseif approachName == "IncWP_Kmeans" 
-                if wptIndex == 2
-                    maxNumberOfSubpathsFromPF = 1;
+function [metrics, strangeExperiments] = calculateHV(metrics, experimentInfoMap, vesselResultsPathBase, vesselInformation, approachSortedInfoMap, waypointRangesMap)
+% Experiments without an eligible candidate do not receive a metric score.
+    strangeExperiments = strings(0,4);
+    for waypoint = string(waypointRangesMap.keys())
+        waypointMetrics = metrics(waypoint); ranges = waypointRangesMap(waypoint);
+        for approach = string(experimentInfoMap.keys())
+            numbers = experimentInfoMap(approach);
+            hv = []; scoredNumbers = [];
+            sorted = approachSortedInfoMap(approach); runs = sorted(waypoint);
+            for k = 1:numel(numbers)
+                run = runs(string(numbers(k)));
+                if contains(approach,"_TimeCutoff")
+                    objectives = run('objectives,');
+                    decisions = run('decisions');
+                    constraints = run('constraints');
                 else
-                    maxNumberOfSubpathsFromPF = 3;
+                    population = getPopulation(vesselInformation,vesselResultsPathBase, ...
+                        [],[],approach,numbers(k),str2double(waypoint));
+                    objectives = population.objs;
+                    decisions = population.decs;
+                    constraints = population.cons;
                 end
-                subpathDivision = 3;
-
-                budgetPerSearch = ceil((populationSize*numGenerationsTotal/((numInitialWaypoints-2)*subpathDivision+1))/populationSize)*populationSize;
-
-                maxEvaluation = round((populationSize*numGenerationsTotal/(numInitialWaypoints-1))/populationSize)*populationSize;
-                numGenerations = ceil(budgetPerSearch*maxNumberOfSubpathsFromPF/populationSize);
-               
-
-            else
-                maxEvaluation = round((populationSize*numGenerationsTotal/(numInitialWaypoints-1))/populationSize)*populationSize;
-                numGenerations = ceil(maxEvaluation/populationSize);
-            end
-            experimentInfo = experimentInfoMap(approachName);
-            referencePoint = [-waypointRanges(3) waypointRanges(5)];
-            approachHV = [];
-            approachIGD = [];
-
-            for exNum = experimentInfo
-                population = getPopulation(vesselInformation, vesselResultsPathBase, populationSize, numGenerations, approachName, exNum, wptIndex);
-
-                objs = population.objs;
-                decs = population.decs;
-                cons = population.cons;
-                [missingPathsFlag, nonMissingPathsFlag] = getIndexesOfMissingPaths(objs);
-                exObjs = objs(nonMissingPathsFlag,:);
-                exDecs = decs(nonMissingPathsFlag,:);
-                exCons = cons(nonMissingPathsFlag,:);
-
-                exObjs(:,1) = -waypointRanges(3) + exObjs(:,1);
-                if size(exObjs,1) > 0 
-                    shiftedPopulation = SOLUTION(exDecs, exObjs, exCons);
-                    paretoFrontObjs = shiftedPopulation.best.objs;
-
-                    if size(paretoFrontObjs,1)> 0
-                        HVscore = hypervolume(paretoFrontObjs, referencePoint,10000);
-                        IGDscore =  IGD(shiftedPopulation,combinedParetoFront);
-                        approachHV = [approachHV; HVscore];
-                        approachIGD = [approachIGD; IGDscore];
-                        if HVscore == 0
-                            strangeExperiments = [strangeExperiments; [string(size(paretoFrontObjs,1)) string(approachName),  string(wptIndex), string(exNum)]];
-
-                        end
-                    else
-                        strangeExperiments = [strangeExperiments; [string(size(paretoFrontObjs,1)) string(approachName),  string(wptIndex), string(exNum)]];
-                    end
+                eligible = all(isfinite(objectives),2) & abs(objectives(:,1))<=1e8;
+                if ~any(eligible)
+                    strangeExperiments(end+1,:) = ["0",approach,waypoint,string(numbers(k))];
+                    continue;
+                end
+                population = SOLUTION(decisions(eligible,:),objectives(eligible,:),constraints(eligible,:));
+                front = population.best.objs;
+                if isempty(front)
+                    strangeExperiments(end+1,:) = ["0",approach,waypoint,string(numbers(k))];
+                    continue;
+                end
+                % Translate both candidate coordinates and the HV reference consistently.
+                shifted = front; shifted(:,1) = shifted(:,1)-ranges(3);
+                reference = [-ranges(3),ranges(5)];
+                if all(reference>0) && all(isfinite(reference))
+                    hv(end+1,1) = hypervolume(shifted,reference,10000);
                 else
-                    strangeExperiments = [strangeExperiments; ["0" string(approachName), string(wptIndex), string(exNum)]];
+                    hv(end+1,1) = NaN; % zero-volume reference box
                 end
+                scoredNumbers(end+1,1) = numbers(k);
             end
-            approachMetric = waypointMetrics(approachName);
-            approachMetric('HV') = approachHV;
-            approachMetric('IGD') = approachIGD;
-            waypointMetrics(approachName) = approachMetric;
+            values = waypointMetrics(approach);
+            values('HV') = hv; values('experimentNumbers') = scoredNumbers;
+            waypointMetrics(approach) = values;
         end
-        metrics(wptIndex) = waypointMetrics;
+        metrics(waypoint) = waypointMetrics;
     end
 end
 
-function metrics = calculateStatistaltests(metrics, experimentInfoMap, vesselResultsPathBase, vesselInformation, waypointRangesMap, combinedsolutionsMap)
+function metrics = calculateStatistaltests(metrics, experimentInfoMap, waypointRangesMap)
     % Compare the HV distributions pairwise using ranksum and A12.
     experimentInfoMap = copyMap(experimentInfoMap);
     
@@ -329,8 +139,13 @@ function metrics = calculateStatistaltests(metrics, experimentInfoMap, vesselRes
                 comperisationAppraochName = comperisationAppraochKey{:};
                 approachMetric = waypointMetrics(comperisationAppraochName);
                 HVmetricComperisation = approachMetric('HV');
-                mannWhitneyUtestValue = ranksum(HVmetricAppraoch, HVmetricComperisation);
-                a12value = a12(HVmetricAppraoch, HVmetricComperisation);
+                a = HVmetricAppraoch(isfinite(HVmetricAppraoch));
+                b = HVmetricComperisation(isfinite(HVmetricComperisation));
+                mannWhitneyUtestValue = NaN; a12value = NaN;
+                if ~isempty(a) && ~isempty(b)
+                    mannWhitneyUtestValue = ranksum(a,b);
+                    a12value = a12(a,b);
+                end
 
                 if mannWhitneyUtestValue < 0.05 && a12value > 0.5
                     finalVote = approachName;
@@ -451,12 +266,6 @@ end
 
 function metrics = calculateUniqueClusters(metrics, approachDataMap)
     % Cluster the waypoint decisions and count clusters unique to one approach.
-    if isKey(approachDataMap, 'FullWP')
-        approachDataMap.remove('FullWP');
-    end
-    if isKey(approachDataMap, 'RandomSearch')
-        approachDataMap.remove('RandomSearch');
-    end
 
     wayPointData = containers.Map();
     for approachKey = approachDataMap.keys()
@@ -646,10 +455,10 @@ function [idx, correpts, nClustersOverall, clusterCenters, clusterSizes] = calcu
             clusterSizes(iCluster) = size(clusterPoints,1);
         end
     else
-        idx = 0;
-        correpts = [];
+        idx = zeros(0,1);
+        correpts = zeros(0,size(wptInApproach,2));
         nClustersOverall = 0;
-        clusterCenters = [];
-        clusterSizes = [];
+        clusterCenters = zeros(0,size(wptInApproach,2));
+        clusterSizes = zeros(0,1);
     end
 end

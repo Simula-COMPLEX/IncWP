@@ -5,28 +5,29 @@ function calculateTimeUsageForEachApproach(vesselName, resultsPath, analysisPath
     %   analysisPath: root folder where analysed outputs are saved.
     %
     % Output:
-    %   Saves TimeusageResults.mat under analysisPath/<vessel>/AnalysedResults/.
+    %   Saves timing results under analysisPath/<vessel>/AnalysedResults/results/timing/.
     resultsPath = char(resultsPath);
     analysisPath = char(analysisPath);
-
-    experimentInfoMap = loadExperimentsStatus(vesselName);
 
     baseResultsPath = append(analysisPath,"/", vesselName, "/AnalysedResults/");
     if ~isfolder(baseResultsPath)
         mkdir(baseResultsPath);
     end
 
-    timeUsageResultsPath =  append(baseResultsPath,"TimeusageResults");
-   
-    % Build the per-experiment timestamp maps from the saved experiment files.
-    selectionTypeTimeStamps = calculateTimeusagePerformance(vesselName, experimentInfoMap, resultsPath);
-    save(timeUsageResultsPath, "selectionTypeTimeStamps","experimentInfoMap");
+    classified = loadAnalysisResults(baseResultsPath,'classification', ...
+        'Variables','experimentInfoMap','IncludeTimeLimited',false);
+    experimentInfoMap = classified.experimentInfoMap;
+
+    selectionTypeTimeStamps = calculateTimeusagePerformance(vesselName,experimentInfoMap,resultsPath);
+    values = struct('selectionTypeTimeStamps',selectionTypeTimeStamps,'experimentInfoMap',experimentInfoMap);
+    saveAnalysisResults(baseResultsPath,'timing',values);
 
     % Summarise the average total runtime per approach across experiments.
     selectionNames = string(selectionTypeTimeStamps.keys);
     approachtimeusageMatrix = [];
     for selectionName = selectionNames
-        if selectionName == "FullWP"
+        approachInfo = analysisApproachInfo(selectionName);
+        if approachInfo.isFullWP
             selectionData = selectionTypeTimeStamps(selectionName);
             experimentsNumbers = selectionData.keys;
             averageTimeUsageMatrix = [];

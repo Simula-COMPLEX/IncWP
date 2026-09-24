@@ -3,6 +3,11 @@ function calculatePathForEachApproach(vesselName, resultsPath, analysisPath)
     analysisPath = char(analysisPath);
 
     experimentInfoMap = loadExperimentsStatus(vesselName);
+    for approach = string(experimentInfoMap.keys())
+        if endsWith(approach,"_TimeCutoff")
+            remove(experimentInfoMap,approach);
+        end
+    end
 
     baseResultsPath = append(analysisPath,"/", vesselName, "/AnalysedResults/");
     if ~isfolder(baseResultsPath)
@@ -11,8 +16,8 @@ function calculatePathForEachApproach(vesselName, resultsPath, analysisPath)
 
     % Classify paths
     display("Currently classifying paths")
-    ClassresultsPath = append(baseResultsPath,"ClassificationResults");
-    [selectionTypeClassification, distancesRanges, selectionTypeClassificationWithBrackets, selectionResultsDistributionMap, resultsMatrix, precentageResultsMap] = calculatePathClassification(vesselName, experimentInfoMap, resultsPath);
-    save(ClassresultsPath, "distancesRanges", "selectionTypeClassification", "selectionTypeClassificationWithBrackets", "experimentInfoMap", "selectionResultsDistributionMap", "resultsMatrix", "precentageResultsMap");
-
+    selectionTypeClassification = calculatePathClassification(vesselName, experimentInfoMap, resultsPath);
+    values = struct('selectionTypeClassification',selectionTypeClassification, ...
+        'experimentInfoMap',experimentInfoMap);
+    saveAnalysisResults(baseResultsPath,'classification',values);
 end

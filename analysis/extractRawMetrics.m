@@ -1,162 +1,72 @@
 function extractRawMetrics(vesselName, resultsPath, analysisPath)
-    % Input:
-    %   vesselName: vessel identifier such as "remus100".
-    %   resultsPath: root folder containing experiment result folders.
-    %   analysisPath: root folder where analysed outputs are saved.
-    %
-    % Output:
-    %   Saves combinedResults.mat under analysisPath/<vessel>/AnalysedResults/.
-    resultsPath = char(resultsPath);
-    analysisPath = char(analysisPath);
-    baseResultsPath = append(analysisPath,"/", vesselName, "/AnalysedResults/");
-    if ~isfolder(baseResultsPath)
-        mkdir(baseResultsPath);
-    end
-
+% Combine population, class and time rows for the classified experiments.
+    baseResultsPath = fullfile(analysisPath,vesselName,'AnalysedResults');
+    if ~isfolder(baseResultsPath), mkdir(baseResultsPath); end
     experimentInfoMap = loadExperimentsStatus(vesselName);
-
-    ClassresultsPath = append(baseResultsPath,"ClassificationResults");
-    load(ClassresultsPath, "selectionTypeClassification");
-
-    [approachDataMap, experimentInfoMap, waypointRangesMap, combinedsolutionsMap, approachSortedInfoMap] = extractForSpecificApproaches(vesselName, experimentInfoMap, selectionTypeClassification, resultsPath);
-    filelocation = append(baseResultsPath, "/combinedResults.mat");
-    save(filelocation,"approachDataMap", "experimentInfoMap", "waypointRangesMap", "combinedsolutionsMap", "approachSortedInfoMap");
-end
-
-function [approachDataMap, experimentInfoMap, waypointRangesMap, combinedsolutionsMap, approachSortedInfoMap] = extractForSpecificApproaches(vesselName, experimentInfoMap, selectionTypeClassification, resultsPath)
-    % Combine the raw population, timestamp, and classification data into
-    % per-approach and per-waypoint maps used by the later metric scripts.
-    vesselResultsPathBase = append(resultsPath, "/", vesselName,"/");
-    vesselInformation = loadShipSearchParameters(vesselName);
-    numInitialWaypoints = vesselInformation.numWaypoints+1;
-    numGenerations = 1000;
-    populationSize = 10;
-
-    approachDataMap = containers.Map();
-    waypointRangesMap = containers.Map();
-    combinedsolutionsMap = containers.Map();
-    approachIndex = ismember(experimentInfoMap.keys(), selectionTypeClassification.keys());
-    approachesList = experimentInfoMap.keys();
-    approachesList = approachesList(approachIndex);
-    approachSortedInfoMap = containers.Map(); 
-
-    for approachKey = approachesList
-        approachName = approachKey{:};
-        experimentsClassification = selectionTypeClassification(approachName);
-        experimentsnumList = experimentsClassification.keys();
-        experimentsnumList = cellfun(@str2double, experimentsnumList);
-
-        waypointDataMap = containers.Map();
-        waypointRanges = [];
-        waypointSortedInfoMap = containers.Map();
-
-        for wptIndex = 2:(vesselInformation.numWaypoints+1)
-            if any(ismember(string(wptIndex), waypointRangesMap.keys()))
-                waypointRanges = waypointRangesMap(string(wptIndex));
-            else
-                waypointRanges = [];
-            end
-
-            if any(ismember(string(wptIndex), combinedsolutionsMap.keys()))
-                waypointSolutionMap = combinedsolutionsMap(string(wptIndex));
-                allObjs = waypointSolutionMap("objs");
-                allCons = waypointSolutionMap("cons");
-                allDecs =  waypointSolutionMap("decs");
-                allMissingFlag = waypointSolutionMap("missingFlag");
-            else
-                allObjs = [];
-                allCons = [];
-                allDecs = [];
-                allMissingFlag = [];
-            end
-            
-            
-
-            objectives = [];
-            contraints = [];
-            decisions = [];
-            timestampsList = [];
-                classesList = [];
-                approachTimeExperiments = [];
-                experimentSortedInfoMap = containers.Map();
-            for experimentNum = experimentsnumList
-
-                population = getPopulation(vesselInformation, vesselResultsPathBase, populationSize, numGenerations, approachName, experimentNum, wptIndex);
-                objs = population.objs;
-                decs = population.decs;
-                cons = population.cons;
-                objectives = [objectives; objs];
-                contraints = [contraints; cons];
-                decisions = [decisions; decs];
-
-                timestamps = getWaypointTimestamp(vesselName, approachName, experimentNum, populationSize, numGenerations, numInitialWaypoints, wptIndex, resultsPath);
-                timestampsList = [timestampsList; timestamps(:)];
-                approachTimeExperiments = [approachTimeExperiments timestamps(:)];
-
-                classesExperiment = experimentsClassification(string(experimentNum));
-                classesExperiment = classesExperiment("classes");
-                classeswaypoint = classesExperiment(string(wptIndex));
-                classesList = [classesList; classeswaypoint];
-                experimentSortedInfoMap(string(experimentNum)) = containers.Map({'classes', 'decisions','objectives,' 'timestamp'}, ... 
-                    {classeswaypoint, decs, objs, timestamps(:)});
-            end
-            waypointSortedInfoMap(string(wptIndex)) = experimentSortedInfoMap;
-
-            [missingPathsFlag, nonMissingPathsFlag] = getIndexesOfMissingPaths(objectives);
-            validObjectives = objectives(nonMissingPathsFlag,:);
-
-            maxObjectives = max(validObjectives);
-            minObjectives = min(validObjectives);
-            if isempty(waypointRanges)
-                waypointRanges = [maxObjectives minObjectives max(objectives(:,2)) min(objectives(:,2))];
-            else
-                waypointRanges(1) = max(waypointRanges(1), maxObjectives(1));
-                waypointRanges(2) = max(waypointRanges(2), maxObjectives(2));
-                waypointRanges(3) = min(waypointRanges(3), minObjectives(1));
-                waypointRanges(4) = min(waypointRanges(4), minObjectives(2));
-                waypointRanges(5) = max(waypointRanges(5), max(objectives(:,2)));
-                waypointRanges(6) = min(waypointRanges(6), min(objectives(:,2)));
-            end 
-
-            allObjs = [allObjs; objectives;];
-            allCons = [allCons; contraints];
-            allDecs = [allDecs; decisions];
-            allMissingFlag = [allMissingFlag; missingPathsFlag];
-            
-            waypointDataMap(string(wptIndex)) = containers.Map({'objectives', 'contraints', 'decisions', 'timestamp', 'missingPathsFlag', 'classes','approachTimeExperiments', 'experimentsnumList'}, ... 
-                {objectives, contraints, decisions, timestampsList, missingPathsFlag, classesList, approachTimeExperiments, experimentsnumList});
-
-            combinedsolutionsMap(string(wptIndex)) = containers.Map({'objs', 'cons', 'decs', 'missingFlag'}, ... 
-                {allObjs, allCons, allDecs, allMissingFlag});
-
-            waypointRangesMap(string(wptIndex)) = waypointRanges;
+    saved = loadAnalysisResults(baseResultsPath,'classification','Variables','selectionTypeClassification','IncludeTimeLimited',false);
+    selectionTypeClassification = saved.selectionTypeClassification;
+    for approach = string(experimentInfoMap.keys())
+        if isKey(selectionTypeClassification,approach)
+            classifiedExperiments = selectionTypeClassification(approach);
+            experimentInfoMap(approach) = str2double(string(classifiedExperiments.keys()));
+        else
+            remove(experimentInfoMap,approach);
         end
-        approachDataMap(approachName) = waypointDataMap;
-        approachSortedInfoMap(approachName) = waypointSortedInfoMap;
     end
+    settings = loadShipSearchParameters(vesselName);
+    populationSize = 10;
+    numGenerations = 1000;
+    approachSortedInfoMap = containers.Map();
+    for approach = string(experimentInfoMap.keys())
+        classifiedExperiments = selectionTypeClassification(approach);
+        waypointMap = containers.Map();
+        for waypoint = 2:settings.numWaypoints+1
+            experiments = containers.Map();
+            for number = experimentInfoMap(approach)
+                population = getPopulation(settings,fullfile(resultsPath,vesselName),[],[],approach,number,waypoint);
+                decisions = population.decs; objectives = population.objs; constraints = population.cons;
+                timestamps = getWaypointTimestamp(vesselName, approach, number, populationSize, ...
+                    numGenerations, settings.numWaypoints+1, waypoint, resultsPath);
+                timestamps = timestamps(:);
+                classified = classifiedExperiments(string(number));
+                classMap = classified('classes');
+                classes = string(classMap(string(waypoint))); classes = classes(:);
+                assert(size(decisions,1)==numel(timestamps) && size(decisions,1)==numel(classes), ...
+                    'Analysis:RowAlignment','Population, classes and timestamps differ for %s experiment %d waypoint %d.',approach,number,waypoint);
+                experiments(string(number)) = containers.Map( ...
+                    {'classes','decisions','objectives,','constraints','timestamp'}, ...
+                    {classes,decisions,objectives,constraints,timestamps});
+            end
+            waypointMap(string(waypoint)) = experiments;
+        end
+        approachSortedInfoMap(approach) = waypointMap;
+    end
+    values = struct('approachSortedInfoMap',approachSortedInfoMap,'experimentInfoMap',experimentInfoMap);
+    saveAnalysisResults(baseResultsPath,'candidates',values);
 end
 
 function timestamps = getWaypointTimestamp(vesselName, approachName, experimentNumber, populationSize, numGenerations, numInitialWaypoints, wptIndex, resultsPath)
     % Read the timestamp information for one waypoint in one experiment.
     vesselResultsPath = append(resultsPath, "/", vesselName,"/", approachName, "-exNum", string(experimentNumber),"/WptIdx-");
  
-    if approachName == "FullWP"
+    approachInfo = analysisApproachInfo(approachName);
+    if approachInfo.isFullWP
         filepath = append(vesselResultsPath,"resultsWpt-",string(numInitialWaypoints));
         load(filepath, "timestamps");
     elseif approachName == "RandomSearch"
         numGenerations = 1;
         load(vesselResultsPath + string(wptIndex) + "-paths" +"-g"+string(numGenerations),"timestamps", "missingPathLabel");
-    elseif approachName == "IncWP_Kmeans"
+    elseif approachInfo.isKmeans
         if wptIndex == 2
             maxNumberOfSubpathsFromPF = 1;
         else
-            maxNumberOfSubpathsFromPF = 3;
+            maxNumberOfSubpathsFromPF = approachInfo.branches;
         end
 
         timeStampsList = [];
         lastTimeStamp = 0;
         for subpathsearch = 1:maxNumberOfSubpathsFromPF
-            subpathDivision = 3;
+            subpathDivision = approachInfo.branches;
             budgetPerSearch = ceil((populationSize*numGenerations/((numInitialWaypoints-2)*subpathDivision+1))/populationSize)*populationSize;
             numGenerationsTemp = ceil(budgetPerSearch*subpathsearch/populationSize);
 

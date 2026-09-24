@@ -15,10 +15,11 @@ function selectionTypeTimeStamps = calculateTimeusagePerformance(vesselName, exp
 
     for selectionType = selectionNames
         experimentTimestampMap = containers.Map();
+        approachInfo = analysisApproachInfo(selectionType);
         if selectionType == "RandomSearch"
             populationSize = 10000; 
             numGenerations = 1;
-        elseif selectionType == "FullWP" 
+        elseif approachInfo.isFullWP 
             populationSize = 10; 
             numGenerations = 1000;
         else
@@ -40,8 +41,9 @@ function [timeStampList, timeStampMap] = timeUsage(vesselName, selectionType, ex
     vesselResultsPath = append(resultsPath, "/", vesselName,"/", selectionType, "-exNum", string(experimentNumber),"/WptIdx-");
     timeStampList = [];
     timeStampMap = containers.Map();
+    approachInfo = analysisApproachInfo(selectionType);
 
-    if selectionType == "FullWP"
+    if approachInfo.isFullWP
         filepath = append(vesselResultsPath,"resultsWpt-",string(numInitialWaypoints));
         load(filepath, "timestamps");
         timeStampMap = timestamps;
@@ -50,17 +52,17 @@ function [timeStampList, timeStampMap] = timeUsage(vesselName, selectionType, ex
             if selectionType == "RandomSearch"
                 numGenerations = 1;
                 load(vesselResultsPath + string(wptIndex) + "-paths" +"-g"+string(numGenerations),"timestamps", "missingPathLabel");
-            elseif selectionType == "IncWP_Kmeans"
+            elseif approachInfo.isKmeans
                 if wptIndex == 2
                     maxNumberOfSubpathsFromPF = 1;
                 else
-                    maxNumberOfSubpathsFromPF = 3;
+                    maxNumberOfSubpathsFromPF = approachInfo.branches;
                 end
 
                 timeStampsList = [];
                 lastTimeStamp = 0;
                 for subpathsearch = 1:maxNumberOfSubpathsFromPF
-                    subpathDivision = 3;
+                    subpathDivision = approachInfo.branches;
                     budgetPerSearch = ceil((populationSize*numGenerations/((numInitialWaypoints-2)*subpathDivision+1))/populationSize)*populationSize;
                     numGenerationsTemp = ceil(budgetPerSearch*subpathsearch/populationSize);
                     load(vesselResultsPath + string(wptIndex) + "-paths" +"-g"+string(numGenerationsTemp),"timestamps", "missingPathLabel");

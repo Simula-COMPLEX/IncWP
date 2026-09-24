@@ -1,4 +1,4 @@
-function [selectionTypeClassification, distancesIntervall, selectionTypeClassificationWithBrackets, selectionResultsDistributionMap, resultsMatrix, precentageResultsMap] = calculatePathClassification(vesselName, experimentInfoMap, resultsPath)
+function [selectionTypeClassification, distancesIntervall] = calculatePathClassification(vesselName, experimentInfoMap, resultsPath)
     % Input:
     %   vesselName: vessel identifier such as "remus100".
     %   experimentInfoMap: containers.Map from selection type to experiment numbers.
@@ -35,11 +35,9 @@ function [selectionTypeClassification, distancesIntervall, selectionTypeClassifi
 
         experimentList = experimentInfoMap(selectionType);
         experimentsClassificationMap = containers.Map();
-        populationSize = 10; 
-        numGenerations = 1000;
 
         for experimentNumber = experimentList
-            [numPeaksMap, classesMap, distanceMap, ExpDistancesRanges] = calculatePerformancePerSubpath(vesselName, selectionType, experimentNumber, populationSize, numGenerations, numWaypoints, peak_analysis, resultsPath);
+            [numPeaksMap, classesMap, distanceMap, ExpDistancesRanges] = calculatePerformancePerSubpath(vesselName, selectionType, experimentNumber, numWaypoints, peak_analysis, resultsPath);
             experimentsClassificationMap(string(experimentNumber)) = containers.Map({'numberOfPeaks' 'classes', 'distances'},{numPeaksMap, classesMap, distanceMap});
 
             for wptIndex = 2:numWaypoints    
@@ -50,12 +48,9 @@ function [selectionTypeClassification, distancesIntervall, selectionTypeClassifi
         selectionTypeClassification(selectionType) = experimentsClassificationMap;    
     end
 
-    numberOfBrackets = 5;
-    selectionTypeClassificationWithBrackets = splitIntoBrackes(selectionTypeClassification, distancesIntervall, experimentInfoMap, numWaypoints, numberOfBrackets);
-    [selectionResultsDistributionMap, resultsMatrix, precentageResultsMap] = countClassificationPathsWithBrackets(selectionTypeClassification, experimentInfoMap, numWaypoints);
 end
 
-function [numPeaksMap, classesMap, distanceMap, distancesRanges] = calculatePerformancePerSubpath(vesselName, selectionType, experimentNumber, populationSize, numGenerations, numInitialWaypoints, peak_analysis, resultsPath)
+function [numPeaksMap, classesMap, distanceMap, distancesRanges] = calculatePerformancePerSubpath(vesselName, selectionType, experimentNumber, numInitialWaypoints, peak_analysis, resultsPath)
     % Build per-waypoint classification results for one experiment.
     %
     % numPeaksMap: waypoint index -> per-individual peak counts.
@@ -67,7 +62,7 @@ function [numPeaksMap, classesMap, distanceMap, distancesRanges] = calculatePerf
                           reshape(vesselInformation.initialPoints,[vesselInformation.pointDimension, vesselInformation.numWaypoints])'];
 
     basepath = append(resultsPath, '/', vesselName,'/', selectionType, "-exNum", string(experimentNumber));
-    maxNumberOfSubpathsFromPF = 3;
+    approachInfo = analysisApproachInfo(selectionType);
 
     distancesRanges = [inf 0].*ones(numInitialWaypoints-1,1);
 
@@ -82,27 +77,15 @@ function [numPeaksMap, classesMap, distanceMap, distancesRanges] = calculatePerf
     else
         % Classify each stored subpath from the saved replay/experiment files.
         for subpathIdx = 2:numInitialWaypoints
-            if selectionType == "IncWP_Kmeans"
-                if subpathIdx == 2
-                    numberOfSubpathSearches = 1;
-                else
-                    numberOfSubpathSearches = 3;
-                end
-                budgetPerSearch = ceil((populationSize*numGenerations/((vesselInformation.numWaypoints-1)*maxNumberOfSubpathsFromPF+1))/populationSize)*populationSize;
-                numberOfIndividuals = ceil(budgetPerSearch*numberOfSubpathSearches/populationSize)*populationSize; 
-            else
-                numberOfIndividuals = round((populationSize*numGenerations/vesselInformation.numWaypoints)/populationSize)*populationSize;
-            end
-
             numPeaksMatrix = [];
             individualClassList = [];
             distancesFromInitialWaypointsList = [];
 
             vesselResultsPath = append(resultsPath, "/", vesselName,"/", selectionType, "-exNum", string(experimentNumber),"/WptIdx-");
 
-            if selectionType == "FullWP"
+            if approachInfo.isFullWP
                 load(vesselResultsPath + "resultsWpt-" + string(subpathIdx), "finalPopulation","distancesWpt","subPathDistanceMatrixWpt","individualClassMatrixWpt","numPeaksMatrixWpt", "timestamps");
-            elseif selectionType == "IncWP_Kmeans"
+            elseif approachInfo.isKmeans
                 load(vesselResultsPath + "resultsWpt-" + string(subpathIdx),"mappingOfIndexes", "paretoFrontPopulations", "indexesParetoFront", "prevObjectivesMap", "timestamp");
                 finalPopulation = paretoFrontPopulations;
             else
@@ -110,7 +93,8 @@ function [numPeaksMap, classesMap, distanceMap, distancesRanges] = calculatePerf
             end
         
             decs = finalPopulation.decs;
-            if selectionType == "FullWP"
+            numberOfIndividuals = size(decs,1);
+            if approachInfo.isFullWP
                 % Full-path search already stores class and distance data in
                 % the resultsWpt file, so no per-individual iter-file scan is needed.
                 numPeaksMatrix = [numPeaksMatrix; numPeaksMatrixWpt'];
@@ -168,61 +152,5 @@ function [numPeaksMap, classesMap, distanceMap, distancesRanges] = calculatePerf
             mkdir(fileparts(char(filepath)));
         end
         save(filepath, "numPeaksMap","classesMap", "classesCountMatrix", "distanceMap", "distancesRanges");
-    end
-end
-
-
-
-function selectionTypeClassification = splitIntoBrackes(selectionTypeClassification, distancesIntervall, experimentInfoMap, numInitialWaypoints, numbrackets)
-    % Add a bracketed view of the classifications, where each waypoint's
-    % individuals are grouped by distance from the original waypoint.
-    bracketeRange = (distancesIntervall(:,2)-distancesIntervall(:,1))/numbrackets;
-    selectionNames = string(experimentInfoMap.keys());
-    tolerance = 1e-5;
- 
-    % Split each waypoint's distances into brackets for later aggregation.
-    for selectionType = selectionNames
-        experimentsClassificationMap = selectionTypeClassification(selectionType);
-        experimentList = experimentInfoMap(selectionType);
-
-        for experimentNumber = experimentList
-            experimentsClassification = experimentsClassificationMap(string(experimentNumber));
-            numPeaksMap = experimentsClassification('numberOfPeaks');
-            classesMap = experimentsClassification('classes');
-            distanceMap = experimentsClassification('distances');
-            
-            bracketClassMapWP = containers.Map();
-            for wptIndex = 2:numInitialWaypoints
-                bracketClassMap = containers.Map();
-                classes = classesMap(string(wptIndex));
-                distancesFromInitialWaypoints = distanceMap(string(wptIndex));
-                distanceclassification = [distancesFromInitialWaypoints classes];
-                startDistance = distancesIntervall(wptIndex-1,1);
-                countedindividuals = [];
-                individualsCounted = 0;
-
-                for bracketsIdx = 1:numbrackets
-                    endDistance = startDistance + bracketeRange(wptIndex-1);
-                    bracketClassMap(string(bracketsIdx)) = distanceclassification((distancesFromInitialWaypoints <= (endDistance + tolerance)) & (distancesFromInitialWaypoints >= (startDistance - tolerance)),:);
-                    startDistance = endDistance;
-                    individualsCounted = individualsCounted + size(bracketClassMap(string(bracketsIdx)),1);
-                    countedindividuals = [countedindividuals; bracketClassMap(string(bracketsIdx))];
-                end
-
-                if individualsCounted < length(distancesFromInitialWaypoints)
-                    [elementsInAbutNotInB,ia] = setdiff(distanceclassification(:,1), countedindividuals(:,1));
-                    missingElements = distancesFromInitialWaypoints(ia,1);
-                    if any(missingElements < distancesIntervall(wptIndex-1,1)) || missingElements  > distancesIntervall(wptIndex-1,2)
-                        distancesIntervall(wptIndex-1,1);
-                    end
-                    size(elementsInAbutNotInB);
-                end
-
-                bracketClassMapWP(string(wptIndex)) = bracketClassMap;
-            end
-
-            experimentsClassificationMap(string(experimentNumber)) = containers.Map({'numberOfPeaks' 'classes', 'distances', 'bracketClassMap'},{numPeaksMap, classesMap, distanceMap, bracketClassMapWP});
-        end
-        selectionTypeClassification(selectionType) = experimentsClassificationMap;
     end
 end

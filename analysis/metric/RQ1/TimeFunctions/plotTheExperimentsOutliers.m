@@ -29,7 +29,7 @@ function plotTheExperimentsOutliers(listOfExperiments, listOfWaypoints, appraoch
      listOfOutlierExperiments
      uniqueApproaches = unique(listOfOutlierExperiments(:,1));
      for approachName = uniqueApproaches'
-         if  approachName == "IncWP_Kmeans"
+         if  ~isempty(regexpi(char(approachName),'^IncWP[-_]K\d*[-_]?Means$','once'))
     
          else 
             appraochTimestamps = selectionTypeTimeStamps(approachName);

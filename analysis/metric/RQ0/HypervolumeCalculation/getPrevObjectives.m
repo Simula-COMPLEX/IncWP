@@ -4,13 +4,14 @@ function objectives = getPrevObjectives(vesselInformation, vesselResultsPathBase
     vesselResultsPathApproach = append(vesselResultsPathBase, selectionName,"-exNum", string(experimentNumber),"/WptIdx-", string(wptIndex)); %, string(wptIndex));
 
    
-    if selectionName == 'IncWP_Kmeans'
+    approachInfo = analysisApproachInfo(selectionName);
+    if approachInfo.isKmeans
         if wptIndex == 2
             numberOfSubpathSearches = 1;
         else
-            numberOfSubpathSearches = 3;
+            numberOfSubpathSearches = approachInfo.branches;
         end
-        maxNumberOfSubpathsFromPF = 3;
+        maxNumberOfSubpathsFromPF = approachInfo.branches;
 
         budgetPerSearch = ceil((populationSize*numGenerations/((vesselInformation.numWaypoints-1)*maxNumberOfSubpathsFromPF+1))/populationSize)*populationSize;
 
