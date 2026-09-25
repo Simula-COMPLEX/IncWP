@@ -49,7 +49,7 @@ end
 
 function ensureProjectDataLayout(projectRoot)
     vesselNames = ["mariner", "nspauv", "remus100"];
-    selectionTypes = ["RandomSearch", "IncWP_KP", "IncWP_Rnd", "IncWP_Prox", "IncWP_Unst", "IncWP_Kmeans", "K2-Means", "K3-Means", "K5-Means", "FullWP10", "FullWP100"];
+    selectionTypes = ["RandomSearch", "IncWP_KP", "IncWP_Rnd", "IncWP_Prox", "IncWP_Unst", "IncWP_Kmeans", "IncWP_K2Means", "IncWP_K3Means", "IncWP_K5Means", "FullWP10", "FullWP100"];
     experimentNumbers = 1:30;
     ensureExperimentRoot(fullfile(projectRoot, "experimentsData"), vesselNames, selectionTypes, experimentNumbers);
     ensureExperimentRoot(fullfile(projectRoot, "replicationRuns", "experiments"), vesselNames, selectionTypes, experimentNumbers);
