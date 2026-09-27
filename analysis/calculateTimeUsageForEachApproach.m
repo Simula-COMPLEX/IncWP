@@ -1,4 +1,5 @@
-function calculateTimeUsageForEachApproach(vesselName, resultsPath, analysisPath)
+function calculateTimeUsageForEachApproach(vesselName, resultsPath, analysisPath, usedSave)
+    if nargin < 4, usedSave = true; end
     % Input:
     %   vesselName: vessel identifier such as "remus100".
     %   resultsPath: root folder containing experiment result folders.
@@ -12,6 +13,11 @@ function calculateTimeUsageForEachApproach(vesselName, resultsPath, analysisPath
     baseResultsPath = append(analysisPath,"/", vesselName, "/AnalysedResults/");
     if ~isfolder(baseResultsPath)
         mkdir(baseResultsPath);
+    end
+
+    if usedSave && analysisResultStatus(baseResultsPath,'timing')
+        fprintf('Using saved timing results.\n');
+        return;
     end
 
     classified = loadAnalysisResults(baseResultsPath,'classification', ...

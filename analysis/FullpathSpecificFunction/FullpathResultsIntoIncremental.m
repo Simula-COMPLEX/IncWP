@@ -1,4 +1,5 @@
-function FullpathResultsIntoIncremental(vesselName, onServer, resultsPath)
+function FullpathResultsIntoIncremental(vesselName, onServer, resultsPath, usedSave)
+    if nargin < 4, usedSave = true; end
 
     if nargin < 3 || strlength(string(resultsPath)) == 0
         error("FullpathResultsIntoIncremental needs a resultsPath so it does not accidentally overwrite ExperimentsResults.")
@@ -18,17 +19,17 @@ function FullpathResultsIntoIncremental(vesselName, onServer, resultsPath)
                 filename = fullfile(folder,"WptIdx-resultsWpt-"+string(waypoint));
                 missingFiles = missingFiles || ~isfile(filename+".mat") || ~isfile(filename+"-population.mat");
             end
-            if ~missingFiles
+            if usedSave && ~missingFiles
                 continue;
             end
             fprintf('Preparing waypoint files for %s experiment %d.\n',selectionType,experimentNum);
-            if ~isfile(fullfile(folder,'ObjectivesUnsplit.mat'))
+            if ~usedSave || ~isfile(fullfile(folder,'ObjectivesUnsplit.mat'))
                 splitOjectivesPerExperiment(vesselName,experimentNum,resultsPath,selectionType);
             end
-            if ~isfile(fullfile(folder,'ResultsPathTypeUnSplit.mat'))
+            if ~usedSave || ~isfile(fullfile(folder,'ResultsPathTypeUnSplit.mat'))
                 calculateClassPerExperiment(vesselName,experimentNum,resultsPath,selectionType);
             end
-            splitPerWaypoint(vesselName,experimentNum,"none",resultsPath,selectionType);
+            splitPerWaypoint(vesselName,experimentNum,"none",resultsPath,selectionType,usedSave);
         end
     end
 
@@ -242,7 +243,7 @@ function calculateClassPerExperiment(vesselName, experimentNum, resultsPath, sel
     
 end
 
-function splitPerWaypoint(vesselName,experimentNum, limit, resultsPath, selectionType)
+function splitPerWaypoint(vesselName,experimentNum, limit, resultsPath, selectionType, usedSave)
     maxValueCONST = 999999999;
     vesselInformation = loadShipSearchParameters(vesselName);
     approachInfo = analysisApproachInfo(selectionType);
@@ -345,7 +346,7 @@ function splitPerWaypoint(vesselName,experimentNum, limit, resultsPath, selectio
         if ~exist(fileparts(char(filepath)), 'dir')
             mkdir(fileparts(char(filepath)));
         end
-        if ~isfile(filepath+".mat")
+        if ~usedSave || ~isfile(filepath+".mat")
             save(filepath, "finalPopulation","distancesWpt","subPathDistanceMatrixWpt", "prevObjectives", "missingPathsFlag")
         end
 
@@ -354,7 +355,7 @@ function splitPerWaypoint(vesselName,experimentNum, limit, resultsPath, selectio
         if ~exist(fileparts(char(filepath)), 'dir')
             mkdir(fileparts(char(filepath)));
         end
-        if ~isfile(filepath+".mat")
+        if ~usedSave || ~isfile(filepath+".mat")
             save(filepath, "finalPopulation","distancesWpt","subPathDistanceMatrixWpt","individualClassMatrixWpt","numPeaksMatrixWpt", "timestamps")
         end
 

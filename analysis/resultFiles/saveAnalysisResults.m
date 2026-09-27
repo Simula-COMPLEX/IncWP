@@ -88,7 +88,7 @@ function saveAnalysisResults(base, dataset, values, varargin)
     analysisResultManifest(base,'finish',dataset,records);
     % Remove only superseded files owned by this result store, after commit.
     obsolete = setdiff(string({previous.path}),string({records.path}));
-    for filename = obsolete
+    for filename = reshape(obsolete,1,[])
         if startsWith(filename,"results"+filesep+dataset+filesep) && isfile(fullfile(base,filename))
             delete(fullfile(base,filename));
         end

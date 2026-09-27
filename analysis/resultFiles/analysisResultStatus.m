@@ -1,4 +1,4 @@
-function status = analysisResultStatus(base)
+function status = analysisResultStatus(base, dataset)
 % Inspect sources, code, shards and dependency revisions; persist stale flags.
     manifest = analysisResultManifest(base,'refresh');
     stages = ["classification","timing","candidates","timeLimited","metrics","reports"];
@@ -16,5 +16,9 @@ function status = analysisResultStatus(base)
         end
     end
     status = table(stages(:),state,reason,updated,'VariableNames',{'Dataset','Status','Reason','UpdatedAt'});
-    if nargout==0, disp(status); end
+    if nargin > 1
+        status = any(status.Dataset == string(dataset) & status.Status == "current");
+    elseif nargout == 0
+        disp(status);
+    end
 end

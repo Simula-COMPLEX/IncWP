@@ -1,4 +1,7 @@
-function calculatePathForEachApproach(vesselName, resultsPath, analysisPath)
+function calculatePathForEachApproach(vesselName, resultsPath, analysisPath, usedSave)
+    if nargin < 4
+        usedSave = true;
+    end
     resultsPath = char(resultsPath);
     analysisPath = char(analysisPath);
 
@@ -14,9 +17,14 @@ function calculatePathForEachApproach(vesselName, resultsPath, analysisPath)
         mkdir(baseResultsPath);
     end
 
+    if usedSave && analysisResultStatus(baseResultsPath,'classification')
+        fprintf('Using saved classification results.\n');
+        return;
+    end
+
     % Classify paths
     display("Currently classifying paths")
-    selectionTypeClassification = calculatePathClassification(vesselName, experimentInfoMap, resultsPath);
+    selectionTypeClassification = calculatePathClassification(vesselName, experimentInfoMap, resultsPath, usedSave);
     values = struct('selectionTypeClassification',selectionTypeClassification, ...
         'experimentInfoMap',experimentInfoMap);
     saveAnalysisResults(baseResultsPath,'classification',values);

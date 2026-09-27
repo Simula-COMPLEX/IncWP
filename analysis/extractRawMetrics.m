@@ -1,7 +1,13 @@
-function extractRawMetrics(vesselName, resultsPath, analysisPath)
+function extractRawMetrics(vesselName, resultsPath, analysisPath, usedSave)
+    if nargin < 4, usedSave = true; end
 % Combine population, class and time rows for the classified experiments.
     baseResultsPath = fullfile(analysisPath,vesselName,'AnalysedResults');
     if ~isfolder(baseResultsPath), mkdir(baseResultsPath); end
+    if usedSave && analysisResultStatus(baseResultsPath,'candidates')
+        fprintf('Using saved candidates results.\n');
+        return;
+    end
+
     experimentInfoMap = loadExperimentsStatus(vesselName);
     saved = loadAnalysisResults(baseResultsPath,'classification','Variables','selectionTypeClassification','IncludeTimeLimited',false);
     selectionTypeClassification = saved.selectionTypeClassification;

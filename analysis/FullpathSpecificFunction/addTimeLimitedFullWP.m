@@ -1,11 +1,18 @@
-function report = addTimeLimitedFullWP(vesselName, resultsPath, analysisPath, policy)
+function report = addTimeLimitedFullWP(vesselName, resultsPath, analysisPath, policy, usedSave)
 % Add derived FullWP views without changing source files or unrestricted views.
 % One shared cutoff per experiment by default; optional mean or per-approach cutoffs.
+    if nargin < 5, usedSave = true; end
     if nargin < 4, policy = "slowestIncremental"; end
     policy = string(validatestring(policy,{'perApproach','slowestIncremental','averageIncremental'}));
     base = fullfile(analysisPath,vesselName,'AnalysedResults');
     manifest = analysisResultManifest(base,'read');
     analysisResultManifest(base,'configure',manifest.configuration.sourceFolder,policy);
+    if usedSave && analysisResultStatus(base,'timeLimited')
+        saved = loadAnalysisResults(base,'timeLimited','Variables','timeLimitReport');
+        report = saved.timeLimitReport;
+        fprintf('Using saved time-limited results.\n');
+        return;
+    end
     combined = loadAnalysisResults(base,'candidates','IncludeTimeLimited',false, ...
         'Variables',["experimentInfoMap","approachSortedInfoMap"]);
     classified = loadAnalysisResults(base,'classification','IncludeTimeLimited',false,'Variables','selectionTypeClassification');

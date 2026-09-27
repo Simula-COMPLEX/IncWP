@@ -1,4 +1,5 @@
-function calculateMetrics(vesselName, resultsPath, analysisPath)
+function calculateMetrics(vesselName, resultsPath, analysisPath, usedSave)
+    if nargin < 4, usedSave = true; end
     % Input:
     %   vesselName: vessel identifier such as "remus100".
     %   resultsPath: root folder containing experiment result folders.
@@ -15,6 +16,19 @@ function calculateMetrics(vesselName, resultsPath, analysisPath)
     vesselResultsPathBase = fullfile(resultsPath,vesselName);
     vesselInformation = loadShipSearchParameters(vesselName);
     filelocation = fullfile(baseResultsPath,'combinedResults.mat');
+    inputFile = dir(filelocation);
+    inputStamp = [inputFile.datenum, inputFile.bytes];
+    finalFile = fullfile(baseResultsPath,'finalResults.mat');
+    if usedSave && isfile(finalFile)
+        fields = who('-file',finalFile);
+        if all(ismember({'inputStamp','metricsComplete'},fields))
+            saved = load(finalFile,'inputStamp','metricsComplete');
+            if saved.metricsComplete && isequal(saved.inputStamp,inputStamp)
+                fprintf('Using saved metrics.\n');
+                return;
+            end
+        end
+    end
     load(filelocation,'approachDataMap','experimentInfoMap','waypointRangesMap', ...
         'combinedsolutionsMap','approachSortedInfoMap');
     
@@ -27,9 +41,11 @@ function calculateMetrics(vesselName, resultsPath, analysisPath)
     metricsWithoutFullpath = containers.Map();
 
     filelocation = fullfile(baseResultsPath,'finalResults.mat');
-    save(filelocation,'metrics','metricsWithoutFullpath','strangeExperiments');
+    metricsComplete = false;
+    save(filelocation,'metrics','metricsWithoutFullpath','strangeExperiments','inputStamp','metricsComplete');
     metrics = calculateUniqueClusters(metrics, approachDataMap);
-    save(filelocation,'metrics','metricsWithoutFullpath','strangeExperiments');
+    metricsComplete = true;
+    save(filelocation,'metrics','metricsWithoutFullpath','strangeExperiments','inputStamp','metricsComplete');
 end
 
 function metrics = calculateClassificationAndTime(metrics, experimentInfoMap, waypointRangesMap, approachDataMap, approachSortedInfoMap)

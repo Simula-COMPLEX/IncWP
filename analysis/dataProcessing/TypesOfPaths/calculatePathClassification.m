@@ -1,4 +1,4 @@
-function [selectionTypeClassification, distancesIntervall] = calculatePathClassification(vesselName, experimentInfoMap, resultsPath)
+function [selectionTypeClassification, distancesIntervall] = calculatePathClassification(vesselName, experimentInfoMap, resultsPath, usedSave)
     % Input:
     %   vesselName: vessel identifier such as "remus100".
     %   experimentInfoMap: containers.Map from selection type to experiment numbers.
@@ -7,6 +7,9 @@ function [selectionTypeClassification, distancesIntervall] = calculatePathClassi
     % Output:
     %   selectionTypeClassification: selection type -> experiment -> classification data.
     %   distancesIntervall: min/max waypoint-distance range across all experiments.
+    if nargin < 4
+        usedSave = true;
+    end
     resultsPath = char(resultsPath);
 
     projectRoot = fileparts(which('setupProject.m'));
@@ -34,7 +37,7 @@ function [selectionTypeClassification, distancesIntervall] = calculatePathClassi
         experimentsClassificationMap = containers.Map();
 
         for experimentNumber = experimentList
-            [numPeaksMap, classesMap, distanceMap, ExpDistancesRanges] = calculatePerformancePerSubpath(vesselName, selectionType, experimentNumber, numWaypoints, peak_analysis, resultsPath);
+            [numPeaksMap, classesMap, distanceMap, ExpDistancesRanges] = calculatePerformancePerSubpath(vesselName, selectionType, experimentNumber, numWaypoints, peak_analysis, resultsPath, usedSave);
             experimentsClassificationMap(string(experimentNumber)) = containers.Map({'numberOfPeaks' 'classes', 'distances'},{numPeaksMap, classesMap, distanceMap});
 
             for wptIndex = 2:numWaypoints    
@@ -47,7 +50,7 @@ function [selectionTypeClassification, distancesIntervall] = calculatePathClassi
 
 end
 
-function [numPeaksMap, classesMap, distanceMap, distancesRanges] = calculatePerformancePerSubpath(vesselName, selectionType, experimentNumber, numInitialWaypoints, peak_analysis, resultsPath)
+function [numPeaksMap, classesMap, distanceMap, distancesRanges] = calculatePerformancePerSubpath(vesselName, selectionType, experimentNumber, numInitialWaypoints, peak_analysis, resultsPath, usedSave)
     % Build per-waypoint classification results for one experiment.
     %
     % numPeaksMap: waypoint index -> per-individual peak counts.
@@ -68,12 +71,14 @@ function [numPeaksMap, classesMap, distanceMap, distancesRanges] = calculatePerf
     distanceMap = containers.Map();
     classesCountMatrix = [];
     filepath = append(resultsPath, '/', vesselName,'/', selectionType, "-exNum", string(experimentNumber), "/classificiation.mat");
-    if exist(filepath) == 2
+    if usedSave && isfile(filepath)
         load(filepath,"numPeaksMap","classesMap", "classesCountMatrix","distanceMap", "distancesRanges");
-
-    else
+    end
         % Classify each stored subpath from the saved replay/experiment files.
         for subpathIdx = 2:numInitialWaypoints
+            if isKey(classesMap,string(subpathIdx))
+                continue;
+            end
             numPeaksMatrix = [];
             individualClassList = [];
             distancesFromInitialWaypointsList = [];
@@ -142,12 +147,11 @@ function [numPeaksMap, classesMap, distanceMap, distancesRanges] = calculatePerf
             distanceMap(string(subpathIdx)) = distancesFromInitialWaypointsList;
             classesCountList = [sum(individualClassList == "missing") sum(individualClassList == "unstable") sum(individualClassList == "stable")];
             classesCountMatrix = [classesCountMatrix; classesCountList];
+            checkpointFile = [tempname(fileparts(char(filepath))), '.mat'];
+            save(checkpointFile, "numPeaksMap","classesMap", "classesCountMatrix", "distanceMap", "distancesRanges");
+            [saved, message] = movefile(checkpointFile, filepath, 'f');
+            if ~saved
+                error('Analysis:CheckpointWrite','%s',message);
+            end
         end
-
-        filepath = append(resultsPath, '/', vesselName,'/', selectionType, "-exNum", string(experimentNumber), "/classificiation.mat");
-        if ~isfolder(fileparts(char(filepath)))
-            mkdir(fileparts(char(filepath)));
-        end
-        save(filepath, "numPeaksMap","classesMap", "classesCountMatrix", "distanceMap", "distancesRanges");
-    end
 end
