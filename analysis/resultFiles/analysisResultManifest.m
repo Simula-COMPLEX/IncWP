@@ -31,7 +31,7 @@ function manifest = analysisResultManifest(base, action, varargin)
             entry.records = records;
             entry.revision = char(java.util.UUID.randomUUID());
             entry.updatedAt = char(datetime('now','TimeZone','UTC','Format',"yyyy-MM-dd'T'HH:mm:ss'Z'"));
-            entry.sourceStamp = sourceStamp(manifest.configuration.sourceFolder);
+            entry.sourceStamp = sourceStamp(manifest.configuration.sourceFolder,base);
             entry.codeStamp = codeStamp();
             entry.policy = policyFor(id,manifest.configuration.timeLimitPolicy);
             dependencies = dependencyNames(id,manifest.configuration.timeLimitPolicy);
@@ -99,7 +99,7 @@ end
 
 function manifest = refresh(manifest,base)
     if isempty(manifest.datasets), return; end
-    source = sourceStamp(manifest.configuration.sourceFolder);
+    source = sourceStamp(manifest.configuration.sourceFolder,base);
     code = codeStamp();
     for k = 1:numel(manifest.datasets)
         entry = manifest.datasets(k);
@@ -173,15 +173,26 @@ function policy = policyFor(id,configured)
     if any(string(id)==["timeLimited","metrics","reports"]), policy = char(configured); end
 end
 
-function stamp = sourceStamp(folder)
+function stamp = sourceStamp(folder,base)
     if isempty(folder), stamp = 'unconfigured'; return; end
     if ~isfolder(folder), stamp = 'missing-source-folder'; return; end
     % Hash file inventory metadata, not gigabytes of simulation contents.
     % Include classification caches: changing a supplied classification is an input change.
-    files = dir(fullfile(folder,'**','*.mat'));
+    [~,vesselName] = fileparts(folder);
+    experimentInfoMap = loadExperimentsStatus(vesselName);
+    files = [];
+    for approach = string(experimentInfoMap.keys())
+        if contains(approach,"_TimeCutoff"), continue; end
+        for experiment = reshape(experimentInfoMap(approach),1,[])
+            experimentFolder = fullfile(folder,approach+"-exNum"+string(experiment));
+            files = [files; dir(fullfile(experimentFolder,'**','*.mat'))];
+        end
+    end
+    outputFolder = char(java.io.File(base).getCanonicalPath());
     lines = strings(0,1);
     for k = 1:numel(files)
         full = fullfile(files(k).folder,files(k).name);
+        if startsWith(full,[outputFolder filesep]), continue; end
         relative = extractAfter(string(full),strlength(string(folder))+1);
         if contains(lower(relative),'validation') || startsWith(files(k).name,'.'), continue; end
         lines(end+1,1) = string(sprintf('%s|%d|%.17g',relative,files(k).bytes,files(k).datenum));
