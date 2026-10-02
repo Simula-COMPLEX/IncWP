@@ -1,29 +1,21 @@
 function saveAnalysisResults(base, dataset, values, varargin)
-% Save small MAT shards and invalidate every dependent dataset.
+% Save split MAT results and their file list in metadata.mat.
 % Merge=true replaces/adds only supplied shards, retaining other approaches/runs.
     parser = inputParser;
     addParameter(parser,'Merge',false,@(x) islogical(x)&&isscalar(x));
     addParameter(parser,'ExternalFiles',strings(0,1));
     parse(parser,varargin{:}); options = parser.Results;
     dataset = analysisDatasetName(dataset);
-    manifest = analysisResultManifest(base,'refresh');
-    old = find(strcmp({manifest.datasets.id},dataset),1);
-    previous = emptyRecords();
-    if ~isempty(old), previous = manifest.datasets(old).records; end
-    if options.Merge
-        assert(~isempty(old) && strcmp(manifest.datasets(old).status,'current'), ...
-            'Analysis:PartialOutdatedUpdate','Partial updates require a current dataset. Rebuild outdated results in full first.');
-        metadataFile = fullfile(base,'results',dataset,'metadata.mat');
-        if isfile(metadataFile)
-            saved = load(metadataFile,'result');
-            if isfield(values,'experimentInfoMap') && isfield(saved.result,'experimentInfoMap')
-                values.experimentInfoMap = mergeExperiments(saved.result.experimentInfoMap,values.experimentInfoMap);
-            end
+    metadataFile = fullfile(base,'results',dataset,'metadata.mat');
+    records = emptyRecords();
+    if options.Merge && isfile(metadataFile)
+        saved = load(metadataFile);
+        [~,entry] = analysisResultStatus(base,dataset);
+        records = entry.records;
+        if isfield(values,'experimentInfoMap') && isfield(saved.result,'experimentInfoMap')
+            values.experimentInfoMap = mergeExperiments(saved.result.experimentInfoMap,values.experimentInfoMap);
         end
     end
-    analysisResultManifest(base,'begin',dataset);
-    records = emptyRecords();
-    if options.Merge, records = previous; end
     metadata = values;
     switch dataset
         case "classification"
@@ -85,14 +77,7 @@ function saveAnalysisResults(base, dataset, values, varargin)
         record = makeRecord(filename,'external','',0,0,'external',info);
         records = putRecord(records,record);
     end
-    analysisResultManifest(base,'finish',dataset,records);
-    % Remove only superseded files owned by this result store, after commit.
-    obsolete = setdiff(string({previous.path}),string({records.path}));
-    for filename = reshape(obsolete,1,[])
-        if startsWith(filename,"results"+filesep+dataset+filesep) && isfile(fullfile(base,filename))
-            delete(fullfile(base,filename));
-        end
-    end
+    save(metadataFile,'records','-append');
 
     function writeRuns(runVariable,runApproaches,runPart)
         for runApproach = string(runApproaches.keys())

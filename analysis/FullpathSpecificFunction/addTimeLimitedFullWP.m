@@ -5,8 +5,6 @@ function report = addTimeLimitedFullWP(vesselName, resultsPath, analysisPath, po
     if nargin < 4, policy = "slowestIncremental"; end
     policy = string(validatestring(policy,{'perApproach','slowestIncremental','averageIncremental'}));
     base = fullfile(analysisPath,vesselName,'AnalysedResults');
-    manifest = analysisResultManifest(base,'read');
-    analysisResultManifest(base,'configure',manifest.configuration.sourceFolder,policy);
     if usedSave && analysisResultStatus(base,'timeLimited')
         saved = loadAnalysisResults(base,'timeLimited','Variables','timeLimitReport');
         report = saved.timeLimitReport;

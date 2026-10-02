@@ -1,8 +1,20 @@
-function displayCalculatedMetricsRelevant(vesselName, resultsPath)
+function displayCalculatedMetricsRelevant(vesselName, resultsPath, allowOutdated, showFigures)
+    % allowOutdated is retained for the optional classification load below.
+    if nargin < 3, allowOutdated = false; end
+    % Use false to export plots without opening figure windows.
+    if nargin < 4, showFigures = true; end
     close all
+    previousVisibility = get(groot,'DefaultFigureVisible');
+    restoreVisibility = onCleanup(@() set(groot,'DefaultFigureVisible',previousVisibility));
+    if showFigures
+        set(groot,'DefaultFigureVisible','on');
+    else
+        set(groot,'DefaultFigureVisible','off');
+        closeHiddenFigures = onCleanup(@() close('all','hidden'));
+    end
     if nargin < 2 || isempty(resultsPath)
         projectRoot = fileparts(which("setupProject.m"));
-        resultsPath = char(fullfile(projectRoot, "analysisResults", "experimentsData"));
+        resultsPath = char(fullfile(projectRoot, "analysisResults"));
     else
         resultsPath = char(resultsPath);
     end
@@ -18,10 +30,10 @@ function displayCalculatedMetricsRelevant(vesselName, resultsPath)
     numInitialWaypoints = vesselInformation.numWaypoints+1;
     numGenerations = 1000;
 
-    ClassresultsPath = append(baseResultsPath,"ClassificationResults");
-    classificationResults = loadAnalysisResults(baseResultsPath,'classification', ...
-        'Variables','selectionTypeClassification');
-    selectionTypeClassification = classificationResults.selectionTypeClassification;
+    % ClassresultsPath = append(baseResultsPath,"ClassificationResults");
+    % classificationResults = loadAnalysisResults(baseResultsPath,'classification', ...
+    %     'Variables','selectionTypeClassification','AllowOutdated',allowOutdated);
+    % selectionTypeClassification = classificationResults.selectionTypeClassification;
 
     filelocation = append(baseResultsPath, "/combinedResults.mat");
     load(filelocation,"approachDataMap", "experimentInfoMap", "waypointRangesMap", "combinedsolutionsMap", "approachSortedInfoMap")
@@ -147,39 +159,44 @@ function displayCalculatedMetricsRelevant(vesselName, resultsPath)
     %names = {}
     
     colorMap = containers.Map(keys, values);
+    for plotType = ["HV", "Time", "Distance", "Unique"]
+        plotFolder = fullfile(baseResultsPath,'plots',plotType);
+        if ~isfolder(plotFolder)
+            mkdir(plotFolder);
+        end
+    end
     %
 
     
     
     % displayUniqueClusters(baseResultsPath, approachDataMap, metrics, colorMap, "clusterSize", nameLatexMap, orderOfPlots)
     % 
-    % displayHVcombinedPlot(baseResultsPath,metrics, colorMap, nameLatexMap, orderOfPlots) 
+    displayHVcombinedPlot(baseResultsPath,metrics, colorMap, nameLatexMap, orderOfPlots)
     % 
-    % displayDistanceSinglePlot(baseResultsPath,metrics, usePrecentage,nameLatexMap, orderOfPlots)
-    % displayTimeUsage(baseResultsPath,metrics, vesselName,nameMapPlot, orderOfPlots)
-    % displayTimeOnlyFirstCombinedPlot(baseResultsPath, metrics, nameLatexMap, orderOfPlots)
-    % latexTimeUsagePerWaypoint(baseResultsPath, metrics, nameLatexMap, orderOfPlots, vesselName)
-    % %displayTimecombinedPlot(baseResultsPath,metrics, colorMap,nameLatexMap, orderOfPlots) % old
-    % displayTimePlots(baseResultsPath,metrics, colorMap,nameLatexMap, orderOfPlots) % done
+     % Requires the removed bracketsDistanceCount metric.
+     % displayDistanceSinglePlot(baseResultsPath,metrics, usePrecentage,nameLatexMap, orderOfPlots)
+     displayTimeUsage(baseResultsPath,metrics, vesselName,nameMapPlot, orderOfPlots)
+     % Requires the removed bracketsTimeCount metric.
+     % displayTimeOnlyFirstCombinedPlot(baseResultsPath, metrics, nameLatexMap, orderOfPlots)
+     latexTimeUsagePerWaypoint(baseResultsPath, metrics, nameLatexMap, orderOfPlots, vesselName)
+     %displayTimecombinedPlot(baseResultsPath,metrics, colorMap,nameLatexMap, orderOfPlots) % old
+    displayTimePlots(baseResultsPath,metrics, colorMap,nameLatexMap, orderOfPlots) % done
     % 
     % 
-    % timeUsageNoBracket(baseResultsPath, metrics, nameLatexMap, orderOfPlots, vesselName, approachSortedInfoMap) % done
-    % distanceNoBracket(baseResultsPath, metrics, nameLatexMap, orderOfPlots, vesselName, approachSortedInfoMap) % done
+    timeUsageNoBracket(baseResultsPath, metrics, nameLatexMap, orderOfPlots, vesselName, approachSortedInfoMap) % done
+    distanceNoBracket(baseResultsPath, metrics, nameLatexMap, orderOfPlots, vesselName, approachSortedInfoMap) % done
     
 
     %%%%
     % %displayUniquePoints(baseResultsPath, approachDataMap, metrics)
     % 
     % %displayUniquePoints(baseResultsPath, approachDataMap, metrics, colorMap, "unique", nameMap, orderOfPlots)
-    %displayUniqueClusters(baseResultsPath, approachDataMap, metrics, colorMap, "numberOfUniqueClusters", nameMap, orderOfPlots)
+    %displayUniqueClusters(baseResultsPath, approachDataMap, metrics, colorMap, "numberOfUniqueClusters", nameLatexMap, orderOfPlots)
     %
     % 
     % %displayUniquePoints(baseResultsPath, approachDataMap, metrics, colorMap, "notInOthers",nameMap, orderOfPlots)
     % 
     
-    if ~isfolder(fullfile(baseResultsPath,'plots','HV'))
-        mkdir(fullfile(baseResultsPath,'plots','HV'));
-    end
     % stat tests
     if isKey(experimentInfoMap,'RandomSearch')
         displayStatistcalTestsRandom(baseResultsPath,metrics, experimentInfoMap,orderOfPlots,vesselName, nameMapPlot)
@@ -215,24 +232,24 @@ function displayStatistcalTestsFull(baseResultsPath, metrics, experimentInfoMap,
         for waypointKey = metrics.keys()
             wptIndex = waypointKey{:};
             waypointMetrics = metrics(wptIndex);
-            approachName
-            comparedApproachName
+            approachName;
+            comparedApproachName;
             StatisticalComparisonResults = waypointMetrics('StatisticalComparisonResults');
             
-            currentCompersationResults = StatisticalComparisonResults(StatisticalComparisonResults(:,1)==approachName & StatisticalComparisonResults(:,2)==comparedApproachName,:)
+            currentCompersationResults = StatisticalComparisonResults(StatisticalComparisonResults(:,1)==approachName & StatisticalComparisonResults(:,2)==comparedApproachName,:);
             if isempty(currentCompersationResults)
-                currentCompersationResults
-                currentCompersationResults = StatisticalComparisonResults(StatisticalComparisonResults(:,1)==comparedApproachName & StatisticalComparisonResults(:,2)==approachName,:)
+                currentCompersationResults;
+                currentCompersationResults = StatisticalComparisonResults(StatisticalComparisonResults(:,1)==comparedApproachName & StatisticalComparisonResults(:,2)==approachName,:);
 
 
             end
             %currentCompersationResults
-            currentCompersationResults(3:end)
-            singleResultsTransformed = [singleResultsTransformed currentCompersationResults(3:end)]
+            currentCompersationResults(3:end);
+            singleResultsTransformed = [singleResultsTransformed currentCompersationResults(3:end)];
             
         end
-        singleResultsTransformed
-        tempresultsTransformed = resultsTransformed
+        singleResultsTransformed;
+        tempresultsTransformed = resultsTransformed;
         resultsTransformed = [resultsTransformed; singleResultsTransformed];
 
     end
@@ -244,7 +261,7 @@ function displayStatistcalTestsFull(baseResultsPath, metrics, experimentInfoMap,
     filename = append(baseResultsPath,"/plots/HV/","StatisticalTests" + approachName + "set.tex");
 
     fid = fopen(filename, 'w');
-    vesselNameLength = size(resultsTransformed,1)
+    vesselNameLength = size(resultsTransformed,1);
 
     %fprintf(fid, '\\begin{tabular}{ll');  % 2 left-aligned text columns
     %for w = 2:(length(metrics.keys)+1)
@@ -260,17 +277,17 @@ function displayStatistcalTestsFull(baseResultsPath, metrics, experimentInfoMap,
     %fprintf(fid, ' \\\\ \n');
     
     if vesselName == "remus100"
-        vesselText = append("\multirow{", string(vesselNameLength), "}{4em}{\resmus} ")
+        vesselText = append("\multirow{", string(vesselNameLength), "}{4em}{\resmus} ");
     elseif vesselName == "nspauv"
-        vesselText = append("\multirow{", string(vesselNameLength), "}{4em}{\nspauv} ")
+        vesselText = append("\multirow{", string(vesselNameLength), "}{4em}{\nspauv} ");
     elseif vesselName == "mariner"
-        vesselText = append("\multirow{", string(vesselNameLength), "}{4em}{\mariner} ")
+        vesselText = append("\multirow{", string(vesselNameLength), "}{4em}{\mariner} ");
 
     end
 
     
     % change strugyure 
-    comparedAppraochesMap = experimentInfoMap
+    comparedAppraochesMap = experimentInfoMap;
 
     [rowsComaprisation, columsComparisation] = size(resultsTransformed);
     for row = 1:rowsComaprisation
@@ -372,7 +389,7 @@ function displayStatistcalTestsRandom(baseResultsPath,metrics, experimentInfoMap
    
 
     resultsTransformed = [];
-    approachName =  "RandomSearch"
+    approachName =  "RandomSearch";
     for comparedApproachNameIdx = 1:length(orderOfPlots)
         comparedApproachName = orderOfPlots(comparedApproachNameIdx);    
         singleResultsTransformed = [string(approachName) string(comparedApproachName)];
@@ -380,22 +397,22 @@ function displayStatistcalTestsRandom(baseResultsPath,metrics, experimentInfoMap
             wptIndex = waypointKey{:};
             waypointMetrics = metrics(wptIndex);
             StatisticalComparisonResults = waypointMetrics('StatisticalComparisonResults');
-            approachName
-            comparedApproachName
-            currentCompersationResults = StatisticalComparisonResults(StatisticalComparisonResults(:,1)==approachName & StatisticalComparisonResults(:,2)==comparedApproachName,:)
+            approachName;
+            comparedApproachName;
+            currentCompersationResults = StatisticalComparisonResults(StatisticalComparisonResults(:,1)==approachName & StatisticalComparisonResults(:,2)==comparedApproachName,:);
             if isempty(currentCompersationResults)
-                currentCompersationResults
-                currentCompersationResults = StatisticalComparisonResults(StatisticalComparisonResults(:,1)==comparedApproachName & StatisticalComparisonResults(:,2)==approachName,:)
+                currentCompersationResults;
+                currentCompersationResults = StatisticalComparisonResults(StatisticalComparisonResults(:,1)==comparedApproachName & StatisticalComparisonResults(:,2)==approachName,:);
 
 
             end
             %currentCompersationResults
-            currentCompersationResults(3:end)
-            singleResultsTransformed = [singleResultsTransformed currentCompersationResults(3:end)]
+            currentCompersationResults(3:end);
+            singleResultsTransformed = [singleResultsTransformed currentCompersationResults(3:end)];
             
         end
-        singleResultsTransformed
-        tempresultsTransformed = resultsTransformed
+        singleResultsTransformed;
+        tempresultsTransformed = resultsTransformed;
         resultsTransformed = [resultsTransformed; singleResultsTransformed];
 
     end
@@ -407,7 +424,7 @@ function displayStatistcalTestsRandom(baseResultsPath,metrics, experimentInfoMap
     filename = append(baseResultsPath,"/plots/HV/","StatisticalTestsRandom.tex");
 
     fid = fopen(filename, 'w');
-    vesselNameLength = size(resultsTransformed,1)
+    vesselNameLength = size(resultsTransformed,1);
 
     %fprintf(fid, '\\begin{tabular}{ll');  % 2 left-aligned text columns
     %for w = 2:(length(metrics.keys)+1)
@@ -423,17 +440,17 @@ function displayStatistcalTestsRandom(baseResultsPath,metrics, experimentInfoMap
     %fprintf(fid, ' \\\\ \n');
     
     if vesselName == "remus100"
-        vesselText = append("\multirow{", string(vesselNameLength), "}{4em}{\resmus} ")
+        vesselText = append("\multirow{", string(vesselNameLength), "}{4em}{\resmus} ");
     elseif vesselName == "nspauv"
-        vesselText = append("\multirow{", string(vesselNameLength), "}{4em}{\nspauv} ")
+        vesselText = append("\multirow{", string(vesselNameLength), "}{4em}{\nspauv} ");
     elseif vesselName == "mariner"
-        vesselText = append("\multirow{", string(vesselNameLength), "}{4em}{\mariner} ")
+        vesselText = append("\multirow{", string(vesselNameLength), "}{4em}{\mariner} ");
 
     end
 
     
     % change strugyure 
-    comparedAppraochesMap = experimentInfoMap
+    comparedAppraochesMap = experimentInfoMap;
 
     [rowsComaprisation, columsComparisation] = size(resultsTransformed);
     for row = 1:rowsComaprisation
@@ -460,16 +477,16 @@ function displayStatistcalTestsRandom(baseResultsPath,metrics, experimentInfoMap
             chosenApproach = waypointCompersiation(3);
             if chosenApproach ~= "ND"
                 if (a12value > 0.44 &&  a12value < 0.56)
-                    latexStength = "\Negligible"
+                    latexStength = "\Negligible";
                 elseif (a12value > 0.34 &&  a12value <= 0.44) || (a12value >= 0.56 &&  a12value < 0.64) 
-                    latexStength = "\SmallEffect"
+                    latexStength = "\SmallEffect";
                 elseif (a12value > 0.29 &&  a12value <= 0.34) || (a12value >= 0.64 &&  a12value < 0.71) 
-                    latexStength = "\MediumEffect"
+                    latexStength = "\MediumEffect";
                 elseif (a12value >= 0 &&  a12value <= 0.29) || (a12value >= 0.71 &&  a12value <= 1) 
-                    latexStength = "\LargeEffect"
+                    latexStength = "\LargeEffect";
                 end
             else
-                latexStength = ""
+                latexStength = "";
             end
             if chosenApproach == approachLeft
                 if addColor
@@ -528,8 +545,8 @@ function displayStatistcalTestsApproaches(baseResultsPath,metrics, experimentInf
     for waypointKey = metrics.keys()
         wptIndex = waypointKey{:};
         waypointMetrics = metrics(wptIndex);
-        StatisticalComparisonResults = ('StatisticalComparwaypointMetricsisonResults')
-        StatisticalComparisonResults
+        StatisticalComparisonResults = ('StatisticalComparwaypointMetricsisonResults');
+        StatisticalComparisonResults;
     end
 
     resultsTransformed = [];
@@ -544,15 +561,15 @@ function displayStatistcalTestsApproaches(baseResultsPath,metrics, experimentInf
                 wptIndex = waypointKey{:};
                 waypointMetrics = metrics(wptIndex);
                 StatisticalComparisonResults = waypointMetrics('StatisticalComparisonResults');
-                approachName
-                comparedApproachName
-                currentCompersationResults = StatisticalComparisonResults(StatisticalComparisonResults(:,1)==approachName & StatisticalComparisonResults(:,2)==comparedApproachName,:)
+                approachName;
+                comparedApproachName;
+                currentCompersationResults = StatisticalComparisonResults(StatisticalComparisonResults(:,1)==approachName & StatisticalComparisonResults(:,2)==comparedApproachName,:);
                 if isempty(currentCompersationResults)
-                    currentCompersationResults
+                    currentCompersationResults;
                 end
                 %currentCompersationResults
-                currentCompersationResults(3:end)
-                singleResultsTransformed = [singleResultsTransformed currentCompersationResults(3:end)]
+                currentCompersationResults(3:end);
+                singleResultsTransformed = [singleResultsTransformed currentCompersationResults(3:end)];
                 
             end
             resultsTransformed = [resultsTransformed; singleResultsTransformed];
@@ -561,13 +578,13 @@ function displayStatistcalTestsApproaches(baseResultsPath,metrics, experimentInf
 
 
     end
-    resultsTransformed
+    resultsTransformed;
     
 
     filename = append(baseResultsPath,"/plots/HV/","StatisticalTestsApproaches.tex");
 
     fid = fopen(filename, 'w');
-    vesselNameLength = size(resultsTransformed,1)
+    vesselNameLength = size(resultsTransformed,1);
 
 
     N = 7;  % or whatever
@@ -595,7 +612,7 @@ function displayStatistcalTestsApproaches(baseResultsPath,metrics, experimentInf
 
     
     % change strugyure 
-    comparedAppraochesMap = experimentInfoMap
+    comparedAppraochesMap = experimentInfoMap;
 
     [rowsComaprisation, columsComparisation] = size(resultsTransformed);
     for row = 1:rowsComaprisation
@@ -623,21 +640,21 @@ function displayStatistcalTestsApproaches(baseResultsPath,metrics, experimentInf
             chosenApproach = waypointCompersiation(3);
             if chosenApproach ~= "ND"
                 if (a12value > 0.44 &&  a12value < 0.56)
-                    latexStength = "\Negligible"
+                    latexStength = "\Negligible";
                 elseif (a12value > 0.34 &&  a12value <= 0.44) || (a12value >= 0.56 &&  a12value < 0.64) 
-                    latexStength = "\SmallEffect"
+                    latexStength = "\SmallEffect";
                 elseif (a12value > 0.29 &&  a12value <= 0.34) || (a12value >= 0.64 &&  a12value < 0.71) 
-                    latexStength = "\MediumEffect"
+                    latexStength = "\MediumEffect";
                 elseif (a12value >= 0 &&  a12value <= 0.29) || (a12value >= 0.71 &&  a12value <= 1) 
-                    latexStength = "\LargeEffect"
+                    latexStength = "\LargeEffect";
                 end
             else
-                latexStength = ""
+                latexStength = "";
             end
             if chosenApproach == approachLeft
-                latexApproach = "\leftarrowapproach"
+                latexApproach = "\leftarrowapproach";
             elseif chosenApproach == approachRight
-                latexApproach = "\rightarrowapproach"
+                latexApproach = "\rightarrowapproach";
             elseif chosenApproach == "ND"
                 latexApproach = "\noDifference";
 
@@ -758,9 +775,6 @@ function displayHVcombinedPlot(baseResultsPath, metrics, colorMap, nameMap, orde
         wptIndex = metricKeys{waypointIdx};
         waypointMetrics = metrics(wptIndex);
 
-        if isKey(waypointMetrics, 'StatisticalComparisonResults')
-            waypointMetrics.remove('StatisticalComparisonResults');
-        end
 
         waypointHV = [];
 
@@ -769,7 +783,10 @@ function displayHVcombinedPlot(baseResultsPath, metrics, colorMap, nameMap, orde
             approachMetric = waypointMetrics(approachName);
             approachHV = approachMetric("HV");
 
-            waypointHV = [waypointHV; approachHV'];
+            numExperiments = max([size(waypointHV,2), numel(approachHV), 1]);
+            waypointHV(:,end+1:numExperiments) = NaN;
+            waypointHV(approachIdx,1:numExperiments) = NaN;
+            waypointHV(approachIdx,1:numel(approachHV)) = approachHV(:)';
 
             if ~addedNames
                 names{end+1} = string(nameMap(approachName));
@@ -902,7 +919,7 @@ end
 
 function displayTimePlots(baseResultsPath, metrics, colorMap, namesMap, orderOfPlots)
 
-    orderOfPlots(orderOfPlots == "RandomSearch") = [];
+    % Include every approach selected in orderOfPlots.
 
     metricKeys = metrics.keys();
     numPlots = length(metricKeys);
@@ -919,6 +936,7 @@ function displayTimePlots(baseResultsPath, metrics, colorMap, namesMap, orderOfP
     for waypointIdx = 1:numPlots
         wptIndex = metricKeys{waypointIdx};
         waypointMetrics = metrics(wptIndex);
+        waypointMetrics = containers.Map(waypointMetrics.keys(),waypointMetrics.values());
 
         if isKey(waypointMetrics, 'StatisticalComparisonResults')
             waypointMetrics.remove('StatisticalComparisonResults');
@@ -933,14 +951,12 @@ function displayTimePlots(baseResultsPath, metrics, colorMap, namesMap, orderOfP
             wayPointTimeInfo = approachMetric("wayPointTimeInfo");
             approachTimeExperiments = wayPointTimeInfo("approachTimeExperiments");
 
-            if size(approachTimeExperiments,2) > 30
-                approachTimeExperiments = approachTimeExperiments(:,1:30);
-            end
+
 
             finalTimes = approachTimeExperiments(end,:);
 
             if approachName ~= "FullWP"
-                timeUsage = [timeUsage finalTimes'];
+                timeUsage = appendPlotRow(timeUsage',finalTimes)';
 
                 if ~addedNames
                     names{end+1} = char(namesMap(approachName));
@@ -954,7 +970,7 @@ function displayTimePlots(baseResultsPath, metrics, colorMap, namesMap, orderOfP
                 accumulated = zeros(size(finalTimes));
             end
 
-            if approachName ~= "FullWP"
+            if ~startsWith(approachName,"FullWP")
                 accumulated = accumulated + finalTimes/60;
             else
                 accumulated = finalTimes/60;
@@ -1069,7 +1085,7 @@ function plotTotalTimeBoxplot(baseResultsPath, accumulatedTimeMap, colorMap, nam
 
     for i = 1:length(keysList)
         k = keysList{i};
-        matrix = [matrix; accumulatedTimeMap(k)];
+        matrix = appendPlotRow(matrix,accumulatedTimeMap(k));
         names{end+1} = char(namesMap(k));
         colors = [colors; colorMap(k)];
     end
@@ -1149,6 +1165,7 @@ function displayTimecombinedPlotOld(baseResultsPath, metrics, colorMap, namesMap
     for waypointIdx = 1:numPlots
         wptIndex = metricKeys{waypointIdx};
         waypointMetrics = metrics(wptIndex);
+        waypointMetrics = containers.Map(waypointMetrics.keys(),waypointMetrics.values());
 
         if isKey(waypointMetrics, 'StatisticalComparisonResults')
             waypointMetrics.remove('StatisticalComparisonResults');
@@ -1222,8 +1239,11 @@ function displayTimecombinedPlotPrev(baseResultsPath,metrics, colorMap, namesMap
     for waypointKey = metrics.keys()
         wptIndex = waypointKey{:};
         waypointMetrics = metrics(wptIndex);
+        waypointMetrics = containers.Map(waypointMetrics.keys(),waypointMetrics.values());
         timeUsage = [];
-        waypointMetrics.remove('StatisticalComparisonResults');
+        if isKey(waypointMetrics,'StatisticalComparisonResults')
+            waypointMetrics.remove('StatisticalComparisonResults');
+        end;
         %for approachKey = waypointMetrics.keys()
         for approachIdx =  1:length(orderOfPlots) 
             
@@ -1238,11 +1258,11 @@ function displayTimecombinedPlotPrev(baseResultsPath,metrics, colorMap, namesMap
             if appraochName ~= "FullWP"
                 
                 if size(approachTimeExperiments(end,:),2) > 30
-                    approachTimeExperiments = approachTimeExperiments(:,1:30)
+                    approachTimeExperiments = approachTimeExperiments(:,1:30);
                 end
-                size(approachTimeExperiments(end,:))
+                size(approachTimeExperiments(end,:));
                 %approachNamesPlot{end+1} = appraochName
-                timeUsage = [timeUsage approachTimeExperiments(end,:)'];
+                timeUsage = appendPlotRow(timeUsage',approachTimeExperiments(end,:))';
                 %namesPlot = [namesPlot; appraochName];
                 if addedNames == false
                     names{end+1} = appraochName;
@@ -1410,7 +1430,7 @@ function displayTimecombinedPlotPrev(baseResultsPath,metrics, colorMap, namesMap
 
     for approachKey = accomuatedTimeMap.keys()
         appraochName = approachKey{:};
-        accumatedTimeMatrix = [accumatedTimeMatrix; accomuatedTimeMap(appraochName)];
+        accumatedTimeMatrix = appendPlotRow(accumatedTimeMatrix,accomuatedTimeMap(appraochName));;
         approachData = currentMatrix(i, :)';
         %currentName = names(n);
         %latexName = char(namesMap(currentName{:}))
@@ -1468,7 +1488,7 @@ end
 
 % KEEP
 function displayTimeUsage(baseResultsPath,metrics,vesselName,nameMap, orderOfPlots)
-    orderOfPlots(orderOfPlots == "RandomSearch") = [];
+    % Include every approach selected in orderOfPlots.
 
     numBrackets = 5;
     figureNum = 50;
@@ -1476,9 +1496,9 @@ function displayTimeUsage(baseResultsPath,metrics,vesselName,nameMap, orderOfPlo
     
     screenSize = [1 1 1512 982];
     overallMap = containers.Map();
-    waypointInfoMatrix = ["Waypoint", "Approach", "MaxTime", "MinTime", "Average Time"]% "Accumlated Time"]
+    waypointInfoMatrix = ["Waypoint", "Approach", "MaxTime", "MinTime", "Average Time"];% "Accumlated Time"];
 
-    endTimeAppraochesAndWaypoints = [];
+    endTimeAppraochesAndWaypoints = strings(0,0);
     
     waypointInfoMap = containers.Map();
     approachNamesPlot = [];
@@ -1488,14 +1508,18 @@ function displayTimeUsage(baseResultsPath,metrics,vesselName,nameMap, orderOfPlo
         names = [];
         wptIndex = waypointKey{:};
         waypointMetrics = metrics(wptIndex);
+        waypointMetrics = containers.Map(waypointMetrics.keys(),waypointMetrics.values());
         numSubplots = length(waypointMetrics.keys());
         appraochNamesList = waypointMetrics.keys();
         %figure(figureNum)
         tempWaypointInfo = [];
         timeUsage = [];
+        approachNamesPlot = {};
         names = [];
         namesPlot = [];
-        waypointMetrics.remove('StatisticalComparisonResults')
+        if isKey(waypointMetrics,'StatisticalComparisonResults')
+            waypointMetrics.remove('StatisticalComparisonResults');
+        end
 
         for approachKey = waypointMetrics.keys()
             appraochName = approachKey{:};
@@ -1507,7 +1531,7 @@ function displayTimeUsage(baseResultsPath,metrics,vesselName,nameMap, orderOfPlo
 
             names = [names; string(appraochName)];
             appraochMetric = waypointMetrics(appraochName);
-            appraochMetric.keys()
+            appraochMetric.keys();
             wayPointTimeInfo = appraochMetric("wayPointTimeInfo");
             exNums = wayPointTimeInfo('exNums');
             
@@ -1517,16 +1541,20 @@ function displayTimeUsage(baseResultsPath,metrics,vesselName,nameMap, orderOfPlo
                 %if size(approachTimeExperiments(end,:),2) > 30
                 %    approachTimeExperiments = approachTimeExperiments(:,1:30)
                 %end
-                size(approachTimeExperiments(end,:))
-                approachNamesPlot{end+1} = appraochName
-                timeUsage = [timeUsage approachTimeExperiments(end,:)'];
+                size(approachTimeExperiments(end,:));
+                approachNamesPlot{end+1} = appraochName;
+                timeUsage = appendPlotRow(timeUsage',approachTimeExperiments(end,:))';
                 %namesPlot = [namesPlot; appraochName];
-                endTimeAppraochesAndWaypoints = [endTimeAppraochesAndWaypoints; ...
-                                                string(wptIndex) appraochName string(exNums); ...
-                                                string(wptIndex) appraochName string(approachTimeExperiments(end,:))]
+                numColumns = max(size(endTimeAppraochesAndWaypoints,2),numel(exNums)+2);
+                endTimeAppraochesAndWaypoints(:,end+1:numColumns) = "";
+                rows = strings(2,numColumns);
+                rows(:,1:2) = repmat([string(wptIndex),string(appraochName)],2,1);
+                rows(1,3:numel(exNums)+2) = string(exNums);
+                rows(2,3:numel(exNums)+2) = string(approachTimeExperiments(end,:));
+                endTimeAppraochesAndWaypoints = [endTimeAppraochesAndWaypoints; rows];
             end
-            MaxTime = wayPointTimeInfo('MaxTime')
-            MinTime = wayPointTimeInfo('MinTime')
+            MaxTime = wayPointTimeInfo('MaxTime');
+            MinTime = wayPointTimeInfo('MinTime');
             AverageTime = wayPointTimeInfo('AverageTime');
 
            
@@ -1542,14 +1570,14 @@ function displayTimeUsage(baseResultsPath,metrics,vesselName,nameMap, orderOfPlo
                 accomuatedTime = zeros(size(approachTimeExperiments(end,:)));
             end
 
-            if appraochName ~= "FullWP"
+            if ~startsWith(appraochName,"FullWP")
                 accomuatedTime = accomuatedTime + (approachTimeExperiments(end,:))/60;
             else
                 accomuatedTime = approachTimeExperiments(end,:)/60;
             end
             accomuatedTimeMap(appraochName) = accomuatedTime; %/60;
             %InfoMatrix = [string(wptIndex), appraochName, string(wayPointTimeInfo(2,2)), string(wayPointTimeInfo(3,2)), string(wayPointTimeInfo(4,2)) string(accomuatedTime)];
-            InfoMatrix = [string(wptIndex), appraochName, string(MaxTime), string(MinTime), string(AverageTime)] %, string(accomuatedTime)];
+            InfoMatrix = [string(wptIndex), appraochName, string(MaxTime), string(MinTime), string(AverageTime)]; %, string(accomuatedTime)];
             
             
 
@@ -1598,16 +1626,16 @@ function displayTimeUsage(baseResultsPath,metrics,vesselName,nameMap, orderOfPlo
     end
     %% time of accumlated time
     accumatedTimeMatrix = [];
-    approachNamesPlot = {}
+    approachNamesPlot = {};
     for approachKey = accomuatedTimeMap.keys()
         appraochName = approachKey{:};
         approachNamesPlot{end+1} = appraochName;
-        accumatedTimeMatrix = [accumatedTimeMatrix; accomuatedTimeMap(appraochName)]
+        accumatedTimeMatrix = appendPlotRow(accumatedTimeMatrix,accomuatedTimeMap(appraochName));
     end
 
     figure(figureNum)
     set(gcf, 'Position', [100, 100, 1512, 982]); % Set the figure size and position
-    accumatedTimeMatrix
+    accumatedTimeMatrix;
     %boxplot(accumatedTimeMatrix', 'Whisker', 1.5)
     boxchart(accumatedTimeMatrix') %, 'Whisker', 1.5)
     
@@ -1615,7 +1643,7 @@ function displayTimeUsage(baseResultsPath,metrics,vesselName,nameMap, orderOfPlo
     ax = gca; % Get current axes
     ax.FontSize = 18;
 
-    ax.XTickLabel = waypointMetrics.keys(); 
+    ax.XTickLabel = approachNamesPlot;
     set(gca, 'TickLabelInterpreter', 'latex');
     fileName = append(baseResultsPath,"/plots/Time/boxPlotTimeUsage-accumulated.png");
 
@@ -1624,13 +1652,13 @@ function displayTimeUsage(baseResultsPath,metrics,vesselName,nameMap, orderOfPlo
 
     figureNum = figureNum + 1;
 
-    endTimeAppraochesAndWaypoints
+    endTimeAppraochesAndWaypoints;
 
     
 
-    waypointInfoMatrix
-    approaches = unique(waypointInfoMatrix(:,2))
-    approaches = approaches(2:end)
+    waypointInfoMatrix;
+    approaches = unique(waypointInfoMatrix(:,2));
+    approaches = approaches(2:end);
 
     %nameMap = containers.Map(...
     %    {'FullWP','IncWP_KP','IncWP_Unst','IncWP_Prox','RandomSearch','IncWP_Rnd','IncWP_Kmeans'}, ...
@@ -1650,19 +1678,19 @@ function displayTimeUsage(baseResultsPath,metrics,vesselName,nameMap, orderOfPlo
     %numApproachesAndWaypoints = size(waypointInfoMatrix, 1);
     
     for waypointKey = waypointInfoMap.keys()
-        wptIndex = waypointKey{:}
+        wptIndex = waypointKey{:};
         fprintf(fid, '\\midrule\n');
 
-        singleWaypointInfo = waypointInfoMap(wptIndex)
-        singleWaypointInfo = singleWaypointInfo(2:end,:) %% skip the first since it is "FullWP"
+        singleWaypointInfo = waypointInfoMap(wptIndex);
+        singleWaypointInfo = singleWaypointInfo(2:end,:); %% skip the first since it is "FullWP"
         numApproachesAndWaypoints = size(singleWaypointInfo, 1);
 
 
-        i = 1 
+        i = 1;
         approach = nameMap(singleWaypointInfo(i,1));
         approach = char(approach);
         approach = strrep(approach, '_', '\_');
-        names = [singleWaypointInfo(i,1)]
+        names = [singleWaypointInfo(i,1)];
 
         fprintf(fid, ['\\multirow{%d}{*}{%d} & %s & %.0f & %.0f & %.0f  \\\\ \n'], ...
             numApproachesAndWaypoints, ...
@@ -1712,14 +1740,14 @@ function displayTimeUsage(baseResultsPath,metrics,vesselName,nameMap, orderOfPlo
     %fprintf(fid, '\\midrule\n');
 
 
-    vesselNameLength = size(orderOfPlots,2)
+    vesselNameLength = size(orderOfPlots,2);
     %notAddedFirst = true
     if vesselName == "remus100"
-        vesselText = append("\multirow{", string(vesselNameLength), "}{4em}{\resmus} ")
+        vesselText = append("\multirow{", string(vesselNameLength), "}{4em}{\resmus} ");
     elseif vesselName == "nspauv"
-        vesselText = append("\multirow{", string(vesselNameLength), "}{4em}{\nspauv} ")
+        vesselText = append("\multirow{", string(vesselNameLength), "}{4em}{\nspauv} ");
     elseif vesselName == "mariner"
-        vesselText = append("\multirow{", string(vesselNameLength), "}{4em}{\mariner} ")
+        vesselText = append("\multirow{", string(vesselNameLength), "}{4em}{\mariner} ");
 
     end
 
@@ -1841,6 +1869,7 @@ function timeUsageNoBracket(baseResultsPath, metrics, nameMap, orderOfPlots, ves
     for waypointKey = metrics.keys()
         wptIndex = waypointKey{:};
         waypointMetrics = metrics(wptIndex);
+        waypointMetrics = containers.Map(waypointMetrics.keys(),waypointMetrics.values());
 
         if isKey(waypointMetrics, 'StatisticalComparisonResults')
             waypointMetrics.remove('StatisticalComparisonResults');
@@ -2211,6 +2240,7 @@ function distanceNoBracket(baseResultsPath, metrics, nameMap, orderOfPlots, vess
     for waypointKey = metrics.keys()
         wptIndex = waypointKey{:};
         waypointMetrics = metrics(wptIndex);
+        waypointMetrics = containers.Map(waypointMetrics.keys(),waypointMetrics.values());
 
         if isKey(waypointMetrics, 'StatisticalComparisonResults')
             waypointMetrics.remove('StatisticalComparisonResults');
@@ -2590,23 +2620,27 @@ function latexTimeUsagePerWaypoint(baseResultsPath, metrics, nameMap, orderOfPlo
     
     screenSize = [1 1 1512 982];
     overallMap = containers.Map();
-    %waypointInfoMatrix = ["Waypoint", "Approach", "MaxTime", "MinTime", "Average Time"]% "Accumlated Time"]
+    %waypointInfoMatrix = ["Waypoint", "Approach", "MaxTime", "MinTime", "Average Time"];% "Accumlated Time"]
 
    
     waypointTimes = [];
 
     for waypointKey = metrics.keys()
         names = [];
-        wptIndex = waypointKey{:}
+        wptIndex = waypointKey{:};
         waypointMetrics = metrics(wptIndex);
+        waypointMetrics = containers.Map(waypointMetrics.keys(),waypointMetrics.values());
         numSubplots = length(waypointMetrics.keys());
         appraochNamesList = waypointMetrics.keys();
         %figure(figureNum)
         tempWaypointInfo = [];
         timeUsage = [];
+        approachNamesPlot = {};
         names = [];
         namesPlot = [];
-        waypointMetrics.remove('StatisticalComparisonResults')
+        if isKey(waypointMetrics,'StatisticalComparisonResults')
+            waypointMetrics.remove('StatisticalComparisonResults');
+        end
         averageTime = []; %[string(wptIndex)];
 
         for approachIdx = 1:length(orderOfPlots)
@@ -2620,7 +2654,7 @@ function latexTimeUsagePerWaypoint(baseResultsPath, metrics, nameMap, orderOfPlo
 
             names = [names; string(appraochName)];
             appraochMetric = waypointMetrics(appraochName);
-            appraochMetric.keys()
+            appraochMetric.keys();
             wayPointTimeInfo = appraochMetric("wayPointTimeInfo");
             exNums = wayPointTimeInfo('exNums');
             
@@ -2646,10 +2680,11 @@ function latexTimeUsagePerWaypoint(baseResultsPath, metrics, nameMap, orderOfPlo
         for waypointKey = metrics.keys()
             wptIndex = waypointKey{:};
             waypointMetrics = metrics(wptIndex);
+        waypointMetrics = containers.Map(waypointMetrics.keys(),waypointMetrics.values());
 
             exNums = wayPointTimeInfo('exNums');
             appraochMetric = waypointMetrics(appraochName);
-            appraochMetric.keys()
+            appraochMetric.keys();
             wayPointTimeInfo = appraochMetric("wayPointTimeInfo");
             
             approachTimeExperiments = wayPointTimeInfo('approachTimeExperiments');
@@ -2664,7 +2699,7 @@ function latexTimeUsagePerWaypoint(baseResultsPath, metrics, nameMap, orderOfPlo
             end
             
         end
-        setWptTime = [setWptTime; mean(prevTime)/60]
+        setWptTime = [setWptTime; mean(prevTime)/60];
 
 
     end
@@ -2685,18 +2720,18 @@ function latexTimeUsagePerWaypoint(baseResultsPath, metrics, nameMap, orderOfPlo
   
     if vesselName == "remus100"
         vesselText = append("\multirow{", string(vesselNameLength), "}{4em}{\resmus} ");
-        waypointTimes = [waypointTimes; setWptTime']
+        waypointTimes = [waypointTimes; setWptTime'];
 
     elseif vesselName == "nspauv"
         vesselText = append("\multirow{", string(vesselNameLength), "}{4em}{\nspauv} ");
-         waypointTimes = [waypointTimes; setWptTime']
+         waypointTimes = [waypointTimes; setWptTime'];
     elseif vesselName == "mariner"
         vesselText = append("\multirow{", string(vesselNameLength), "}{4em}{\mariner} ");
         emptyArray = strings(size(setWptTime));
-        waypointTimes = [waypointTimes; emptyArray'; setWptTime']
+        waypointTimes = [waypointTimes; emptyArray'; setWptTime'];
     end
     %waypointTimes(waypointTimes<0) = "-"
-    waypointTimes = string(waypointTimes)
+    waypointTimes = string(waypointTimes);
     
       
     waypointTimes = waypointTimes';
@@ -2711,7 +2746,7 @@ function latexTimeUsagePerWaypoint(baseResultsPath, metrics, nameMap, orderOfPlo
         waypointText = [];
         for wptIdx = 1:columsComparisation
             if str2double(approachWptTime(wptIdx)) < 0
-                approachWptTime(wptIdx) = "-"
+                approachWptTime(wptIdx) = "-";
             end
             waypointText = [waypointText, approachWptTime(wptIdx)];
             
@@ -2869,6 +2904,7 @@ function displayTimeOnlyFirstCombinedPlot(baseResultsPath, metrics, nameMap, ord
         hold on;
         
         waypointMetrics = metrics(wptIndex);
+        waypointMetrics = containers.Map(waypointMetrics.keys(),waypointMetrics.values());
         if isKey(waypointMetrics, 'StatisticalComparisonResults')
             waypointMetrics.remove('StatisticalComparisonResults');
         end
@@ -3092,6 +3128,7 @@ function displayDistanceSinglePlot(baseResultsPath, metrics, usePrecentage, name
         hold on;
         
         waypointMetrics = metrics(wptIndex);
+        waypointMetrics = containers.Map(waypointMetrics.keys(),waypointMetrics.values());
         if isKey(waypointMetrics, 'StatisticalComparisonResults')
             waypointMetrics.remove('StatisticalComparisonResults');
         end
@@ -3402,7 +3439,7 @@ function displayUniqueClusters(baseResultsPath, approachDataMap, metrics, colorM
     % ------------------------------------------------------------
     % Choose y-axis label
     % ------------------------------------------------------------
-    if uniqueCategoryType == "uniqeClusters" || uniqueCategoryType == "numberOfuniqeClusters"
+    if uniqueCategoryType == "numberOfUniqueClusters" || uniqueCategoryType == "uniqeClusters" || uniqueCategoryType == "numberOfuniqeClusters"
         valueText = "Number of unique clusters";
     elseif uniqueCategoryType == "clusterSize"
         valueText = "Number of clusters";
@@ -3476,7 +3513,7 @@ function displayUniqueClusters(baseResultsPath, approachDataMap, metrics, colorM
             missingClusterSizes = missingStats('clusterSizes');
             nClustersMissing = missingStats('nClustersMissing');
 
-            if uniqueCategoryType == "numberOfuniqeClusters" || uniqueCategoryType == "uniqeClusters"
+            if uniqueCategoryType == "numberOfUniqueClusters" || uniqueCategoryType == "numberOfuniqeClusters" || uniqueCategoryType == "uniqeClusters"
                 dataRow = [ ...
                     countOfuniqueClusterOverall, ...
                     countOfuniqueClusterStable, ...
@@ -3594,4 +3631,17 @@ function displayUniqueClusters(baseResultsPath, approachDataMap, metrics, colorM
     fileName = append(baseResultsPath, exportFolder, exportFileName);
     exportgraphics(gcf, fileName, 'Resolution', exportResolution);
 
+end
+
+function matrix = appendPlotRow(matrix, values)
+    % NaN pads absent experiments without adding observations to box plots.
+    numColumns = max([size(matrix,2), numel(values), 1]);
+    padded = NaN(size(matrix,1)+1,numColumns);
+    if ~isempty(matrix)
+        padded(1:size(matrix,1),1:size(matrix,2)) = matrix;
+    end
+    if ~isempty(values)
+        padded(end,1:numel(values)) = values(:)';
+    end
+    matrix = padded;
 end

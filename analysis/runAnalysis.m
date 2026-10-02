@@ -1,4 +1,4 @@
-function analysisPath = runAnalysis(vesselName, dataPath, timeLimitPolicy, usedSave)
+function analysisPath = runAnalysis(vesselName, dataPath, timeLimitPolicy, usedSave, makePlots)
     % Example: runAnalysis("mariner")
     % vesselName: "mariner", "remus100" or "nspauv".
     % dataPath: experiment root folder; defaults to experimentsData.
@@ -6,9 +6,13 @@ function analysisPath = runAnalysis(vesselName, dataPath, timeLimitPolicy, usedS
     % "perApproach" or "none". Use [] for dataPath to keep its default.
     % Select experiment numbers in loadExperimentsStatus.m for each vessel.
     % usedSave: true (default) reuses saved analysis results;
-    % false recalculates all analysis results.
+    % false recalculates all analysis results; use after changing calculation code.
+    % makePlots: false (default) skips plotting; true generates the enabled plots.
     % Returns the analysis output folder. Each call runs the steps below.
 
+    if nargin < 5
+        makePlots = false;
+    end
     if nargin < 4
         usedSave = true;
     end
@@ -24,10 +28,9 @@ function analysisPath = runAnalysis(vesselName, dataPath, timeLimitPolicy, usedS
     else
         dataPath = char(dataPath);
     end
-    analysisPath = buildAnalysisPath(projectRoot, dataPath);
+    analysisPath = fullfile(projectRoot, "analysisResults");
 
     baseResultsPath = fullfile(analysisPath, vesselName, 'AnalysedResults');
-    configureAnalysisResults(baseResultsPath, fullfile(dataPath, vesselName), timeLimitPolicy);
 
     FullpathResultsIntoIncremental(vesselName, false, dataPath, usedSave);
     calculatePathForEachApproach(vesselName, dataPath, analysisPath, usedSave);
@@ -38,26 +41,17 @@ function analysisPath = runAnalysis(vesselName, dataPath, timeLimitPolicy, usedS
         addTimeLimitedFullWP(vesselName, dataPath, analysisPath, timeLimitPolicy, usedSave);
     end
 
-    manifest = analysisResultManifest(baseResultsPath,'read');
-    datasets = "candidates";
-    if timeLimitPolicy ~= "none", datasets(end+1) = "timeLimited"; end
-    resultRevisions = {manifest.datasets(ismember(string({manifest.datasets.id}),datasets)).revision};
     combinedFile = fullfile(baseResultsPath,'combinedResults.mat');
-    savedRevisions = struct();
-    if usedSave && isfile(combinedFile)
-        fields = who('-file',combinedFile);
-        if ismember('resultRevisions',fields)
-            savedRevisions = load(combinedFile,'resultRevisions');
-        end
-    end
-    if ~isfield(savedRevisions,'resultRevisions') || ~isequal(savedRevisions.resultRevisions,resultRevisions)
-        combinedResults = loadAnalysisResults(baseResultsPath,'candidates');
-        combinedResults.resultRevisions = resultRevisions;
+    if ~usedSave || ~isfile(combinedFile)
+        combinedResults = loadAnalysisResults(baseResultsPath,'candidates', ...
+            'IncludeTimeLimited',timeLimitPolicy ~= "none");
         save(combinedFile,'-struct','combinedResults');
     end
 
     calculateMetrics(vesselName, dataPath, analysisPath, usedSave);
-    displayCalculatedMetricsRelevant(vesselName, analysisPath);
+    if makePlots
+        displayCalculatedMetricsRelevant(vesselName, analysisPath);
+    end
 end
 
 function analysisPath = buildAnalysisPath(projectRoot, dataPath)

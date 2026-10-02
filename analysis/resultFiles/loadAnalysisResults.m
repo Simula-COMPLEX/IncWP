@@ -1,7 +1,7 @@
 function values = loadAnalysisResults(base,dataset,varargin)
 % Load selected shards, or reconstruct the previous complete result structures.
-% Filters: Approach, Experiment, Waypoint, Part, Variables. Stale reads require
-% AllowOutdated=true; an interrupted/in-progress write is never readable.
+% Filters: Approach, Experiment, Waypoint, Part, Variables.
+% AllowOutdated remains accepted for older callers; no freshness checks are made.
     parser = inputParser;
     addParameter(parser,'Approach',strings(0,1));
     addParameter(parser,'Experiment',[]);
@@ -15,21 +15,20 @@ function values = loadAnalysisResults(base,dataset,varargin)
     dataset = analysisDatasetName(dataset);
     assert(isempty(options.Experiment) || ~any(dataset==["metrics","reports"]), ...
         'Analysis:AggregateSelection','Metrics/reports aggregate experiments. Select an experiment from candidates, classification or timing.');
-    manifest = analysisResultManifest(base,'refresh');
     if dataset=="all"
         values = struct();
         for id = ["classification","timing","candidates","metrics","reports"]
-            if any(strcmp({manifest.datasets.id},id))
+            if analysisResultStatus(base,id)
                 values.(id) = loadAnalysisResults(base,id,varargin{:});
             end
         end
         return;
     end
-    entry = requireEntry(manifest,dataset,options.AllowOutdated);
+    [~,entry] = analysisResultStatus(base,dataset);
     values = readDataset(base,entry,options);
     if options.IncludeTimeLimited && any(dataset==["classification","timing","candidates"]) && ...
-            string(manifest.configuration.timeLimitPolicy)~="none"
-        limitedEntry = requireEntry(manifest,"timeLimited",options.AllowOutdated);
+            analysisResultStatus(base,'timeLimited')
+        [~,limitedEntry] = analysisResultStatus(base,"timeLimited");
         if dataset=="classification", variable = 'selectionTypeClassification';
         elseif dataset=="timing", variable = 'selectionTypeTimeStamps';
         else, variable = 'approachSortedInfoMap'; end
@@ -56,17 +55,6 @@ function values = loadAnalysisResults(base,dataset,varargin)
         assert(all(isfield(values,cellstr(requested))),'Analysis:ResultVariable','Requested result variable is unavailable.');
         values = rmfield(values,setdiff(fieldnames(values),cellstr(requested)));
     end
-end
-
-function entry = requireEntry(manifest,id,allowOutdated)
-    index = find(strcmp({manifest.datasets.id},id),1);
-    assert(~isempty(index),'Analysis:MissingResults', ...
-        'No split %s results. Run analysis or migrateAnalysisResults for old MAT files.',id);
-    entry = manifest.datasets(index);
-    assert(~strcmp(entry.status,'building'),'Analysis:IncompleteResults', ...
-        '%s is being rebuilt or its last write was interrupted. Rebuild it before loading.',id);
-    assert(strcmp(entry.status,'current') || allowOutdated,'Analysis:OutdatedResults', ...
-        '%s results are outdated: %s Run analysisResultStatus for details.',id,entry.reason);
 end
 
 function values = readDataset(base,entry,options)

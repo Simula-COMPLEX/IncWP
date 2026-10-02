@@ -1,24 +1,65 @@
-function status = analysisResultStatus(base, dataset)
-% Inspect sources, code, shards and dependency revisions; persist stale flags.
-    manifest = analysisResultManifest(base,'refresh');
-    stages = ["classification","timing","candidates","timeLimited","metrics","reports"];
-    state = strings(6,1); reason = strings(6,1); updated = strings(6,1);
-    for k = 1:numel(stages)
-        index = find(strcmp({manifest.datasets.id},stages(k)),1);
-        state(k) = "missing"; reason(k) = "Not calculated.";
-        if ~isempty(index)
-            state(k) = string(manifest.datasets(index).status);
-            reason(k) = string(manifest.datasets(index).reason);
-            updated(k) = string(manifest.datasets(index).updatedAt);
-        end
-        if stages(k)=="timeLimited" && string(manifest.configuration.timeLimitPolicy)=="none"
-            state(k) = "disabled"; reason(k) = "Time-limit policy is none.";
-        end
-    end
-    status = table(stages(:),state,reason,updated,'VariableNames',{'Dataset','Status','Reason','UpdatedAt'});
+function [status, entry] = analysisResultStatus(base, dataset)
+% Check for saved dataset metadata; no automatic outdated checks.
     if nargin > 1
-        status = any(status.Dataset == string(dataset) & status.Status == "current");
-    elseif nargout == 0
-        disp(status);
+        status = isfile(fullfile(base,'results',analysisDatasetName(dataset),'metadata.mat'));
+        if nargout > 1, entry = resultEntry(base,analysisDatasetName(dataset)); end
+        return;
     end
+    datasets = ["classification";"timing";"candidates";"timeLimited";"metrics";"reports"];
+    exists = false(size(datasets));
+    for k = 1:numel(datasets)
+        exists(k) = analysisResultStatus(base,datasets(k));
+    end
+    status = table(datasets,exists,'VariableNames',{'Dataset','Exists'});
+    if nargout == 0, disp(status); end
+end
+
+function entry = resultEntry(base,id)
+    folder = fullfile(base,'results',id);
+    saved = load(fullfile(folder,'metadata.mat'));
+    entry = struct('id',char(id),'records',[]);
+    if isfield(saved,'records')
+        entry.records = saved.records;
+        return;
+    end
+    % Older split results have no file list in metadata.mat.
+    files = dir(fullfile(folder,'**','*.mat'));
+    records = struct('path',{},'variable',{},'approach',{},'experiment',{},'waypoint',{},'part',{},'bytes',{},'modified',{});
+    for k = 1:numel(files)
+        relative = extractAfter(string(fullfile(files(k).folder,files(k).name)),strlength(string(folder))+1);
+        pieces = split(relative,filesep);
+        [~,stem] = fileparts(files(k).name);
+        record = struct('path',char(fullfile('results',id,relative)), ...
+            'variable','','approach','','experiment',0,'waypoint',0,'part',stem,'bytes',files(k).bytes,'modified',files(k).datenum);
+        if relative == "metadata.mat"
+            record.variable = 'metadata';
+        elseif pieces(1) == "classification" || pieces(1) == "timing"
+            record.approach = char(pieces(2));
+            record.experiment = sscanf(stem,'experiment-%d');
+            record.part = char(pieces(1));
+            if pieces(1) == "classification", record.variable = 'selectionTypeClassification';
+            else, record.variable = 'selectionTypeTimeStamps'; end
+        elseif any(string(id)==["candidates","timeLimited"]) && numel(pieces)==3
+            record.variable = 'approachSortedInfoMap';
+            record.approach = char(pieces(1));
+            record.experiment = sscanf(pieces(2),'experiment-%d');
+            record.waypoint = sscanf(stem,'waypoint-%d');
+            record.part = 'candidates';
+        elseif string(id)=="metrics"
+            record.variable = 'metrics';
+            if pieces(1)=="comparisons"
+                record.waypoint = sscanf(stem,'waypoint-%d');
+                record.part = 'comparisons';
+            else
+                record.approach = char(pieces(1));
+                record.waypoint = sscanf(pieces(2),'waypoint-%d');
+            end
+        elseif string(id)=="reports"
+            record.variable = stem;
+        else
+            continue;
+        end
+        records(end+1) = record;
+    end
+    entry.records = records;
 end
