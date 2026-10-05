@@ -1,9 +1,11 @@
-function [resultingWaypoints, fullSearchTime] = runIncWPKmeans(vesselName, resultsPath, experimentNumber, numGenerationsOriginal, populationSize)
+function [resultingWaypoints, fullSearchTime] = runIncWPKmeans(vesselName, resultsPath, experimentNumber, numGenerationsOriginal, populationSize, numberOfClusters)
     % Run the incremental multi-start variant that clusters Pareto solutions.
     initialTimestamp = tic;
     algorithm = @WPgen;
 
-    resultsSelectionType = "IncWP_Kmeans";
+    if nargin < 6, numberOfClusters = 3; end
+    validateattributes(numberOfClusters, {'numeric'}, {'scalar','integer','positive'});
+    resultsSelectionType = "IncWP_K" + string(numberOfClusters) + "Means";
     selectionType = "kMeans";
     vesselResultsPathBase = append(resultsPath, "/", vesselName, "/", resultsSelectionType, "-exNum", string(experimentNumber), "/WptIdx-");
 
@@ -14,7 +16,7 @@ function [resultingWaypoints, fullSearchTime] = runIncWPKmeans(vesselName, resul
     initialPointsMatrix = [zeros(1, parameter.vesselInformation.pointDimension); ...
                            reshape(parameter.vesselInformation.initialPoints, [parameter.vesselInformation.pointDimension, parameter.vesselInformation.numWaypoints])'];
 
-    maxNumberOfSubpathsFromPF = 3;
+    maxNumberOfSubpathsFromPF = numberOfClusters;
     budgetPerSearch = ceil((populationSize * numGenerationsOriginal / ((parameter.vesselInformation.numWaypoints - 1) * maxNumberOfSubpathsFromPF + 1)) / populationSize) * populationSize;
     numberOfSamples = parameter.vesselInformation.numberOfSamples;
     numberOfRandomEnviromentVariables = parameter.vesselInformation.numberOfRandomEnviromentVariables;
@@ -113,7 +115,6 @@ function [resultingWaypoints, fullSearchTime] = runIncWPKmeans(vesselName, resul
                 end
             end
         end
-
         [~, selectedObjs] = kmeans(paretoFrontObjs, maxNumberOfSubpathsFromPF);
         indexesParetoFront = zeros(maxNumberOfSubpathsFromPF, 1);
         for i = 1:maxNumberOfSubpathsFromPF
