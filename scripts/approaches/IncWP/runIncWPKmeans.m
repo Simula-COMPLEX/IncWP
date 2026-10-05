@@ -58,7 +58,7 @@ function [resultingWaypoints, fullSearchTime] = runIncWPKmeans(vesselName, resul
         % Each selected Pareto solution becomes the start point of a new sub-search.
         for paretoFrontIndex = indexesParetoFront'
             startWpt = decsions(paretoFrontIndex, :);
-            prevWptObjectiveScores = [prevWptObjectiveObj1(paretoFrontIndex, :), prevWptObjectiveObj2(paretoFrontIndex, :)];
+            prevWptObjectiveScores = [prevWptObjectiveObj1(paretoFrontIndex, :); prevWptObjectiveObj2(paretoFrontIndex, :)]';
             startWptIndex = paretoFrontIndex;
 
             parameter.startWpt = startWpt;
